@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hand Field</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+  <div id="stage"></div>
+  <canvas id="fx"></canvas>
+
+  <!-- 좌상단: 타이틀 -->
+  <header class="hud tl">
+    <div class="title">HAND<span>·</span>FIELD</div>
+    <div class="sub" id="status">booting…</div>
+  </header>
+
+  <!-- 좌측: 손으로 누를 수 있는 컨트롤 (손가락을 올려두면 채워지며 클릭, 또는 핀치로 즉시 클릭) -->
+  <nav class="hud left">
+    <section class="node">
+      <div class="node-h">MODE</div>
+      <button class="hbtn" data-mode="text"><b>01</b> PARTICLE TEXT</button>
+      <button class="hbtn" data-mode="flow"><b>02</b> FLOW FIELD</button>
+      <button class="hbtn" data-mode="cloud"><b>03</b> POINT CLOUD</button>
+    </section>
+    <section class="node">
+      <div class="node-h">COLOR</div>
+      <div class="row">
+        <button class="hbtn sw" data-pal="ice"><i style="--c:#9fe0ff"></i>ICE</button>
+        <button class="hbtn sw" data-pal="ember"><i style="--c:#ff7a2e"></i>EMBER</button>
+      </div>
+      <div class="row">
+        <button class="hbtn sw" data-pal="neon"><i style="--c:#c86bff"></i>NEON</button>
+        <button class="hbtn sw" data-pal="mono"><i style="--c:#e8e8e8"></i>MONO</button>
+      </div>
+    </section>
+    <section class="node" id="textNode">
+      <div class="node-h">TEXT</div>
+      <div class="row">
+        <button class="hbtn" data-text="A">A</button>
+        <button class="hbtn" data-text="HELLO">HELLO</button>
+      </div>
+      <div class="row">
+        <button class="hbtn" data-text="손">손</button>
+        <button class="hbtn" data-text="TOUCH">TOUCH</button>
+      </div>
+      <input id="txt" maxlength="12" placeholder="직접 입력 + Enter" spellcheck="false">
+    </section>
+    <section class="node">
+      <div class="node-h">FX</div>
+      <div class="row">
+        <button class="hbtn" data-toggle="trails">TRAILS</button>
+        <button class="hbtn" data-toggle="skel">SKELETON</button>
+      </div>
+    </section>
+  </nav>
+
+  <!-- 우상단: 카메라 미리보기 + 손 인식 -->
+  <aside class="hud tr" id="cam">
+    <div class="node-h"><span>CAM_IN</span><span id="camInfo">— hands</span></div>
+    <div class="cam-view" id="camView">
+      <video id="vid" playsinline muted></video>
+      <canvas id="camFx"></canvas>
+      <div class="cam-empty" id="camEmpty">카메라 대기 중</div>
+    </div>
+    <div class="cam-foot" id="camFoot">
+      <div>A <span>—</span></div>
+      <div>B <span>—</span></div>
+    </div>
+  </aside>
+
+  <!-- 하단: 제스처 안내 -->
+  <footer class="hud bottom">
+    <span><b>✋ 펼친 손</b> 휘젓기·밀어내기</span>
+    <span><b>🤏 핀치</b> 끌어당기기 → 놓으면 폭발</span>
+    <span><b>✊ 주먹</b> <em id="fistHint">흩어 놓기</em></span>
+    <span><b>🤏🤏 두 손 핀치</b> <em id="twoHint">크기·회전</em></span>
+    <span><b>☝ 버튼 위에 손가락</b> 잠시 두면 클릭</span>
+    <span class="keys">1·2·3 모드 · H UI 숨김 · C 카메라 · 마우스도 가능</span>
+  </footer>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
