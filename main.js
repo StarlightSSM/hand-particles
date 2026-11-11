@@ -5,6 +5,7 @@ import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FilesetResolver, HandLandmarker } from './vendor/mediapipe/vision_bundle.mjs';
+import { initVfx } from './vfx.js';
 
 const $ = (s) => document.querySelector(s);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -23,7 +24,11 @@ const PALETTES = {
 };
 let PAL = PALETTES.ice;
 // 두 손 핀치로 조절하는 전역 변형 (text: 글자 크기/회전, cloud: 오브젝트 변형, flow: 빔)
-const G = { scale: 1, rot: 0, two: null, cloudRX: 0, cloudRY: 0 };
+const G = { scale: 1, rot: 0, two: null, cloudRX: 0, cloudRY: 0, orb: { spin: 0.3, part: 0.4, ang: 0, ctrls: [] } };
+// 04~06: 웹캠 영상을 배경으로 깔고 그 위에 합성하는 모드
+const VMODES = new Set(['box', 'orb', 'hud']);
+const MODES = ['text', 'flow', 'cloud', 'box', 'orb', 'hud'];
+const isV = () => VMODES.has(S.mode);
 
 /* ───────────────────────── three.js ───────────────────────── */
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -103,11 +108,12 @@ let camOK = false;
 let landmarker = null;
 let lastVT = -1;
 
-// 손 좌표 → 화면 world 좌표 (거울 모드, 화면을 cover로 덮고 1.25배 게인 → 화면 끝까지 쉽게 닿음)
-const GAIN = 1.25;
+// 손 좌표 → 화면 world 좌표 (거울 모드, 화면을 cover로 덮음)
+// 01~03: 1.25배 게인 → 화면 끝까지 쉽게 닿음 / 04~06: 배경 영상과 정확히 겹치도록 1배
 function span() {
+  const gain = isV() ? 1 : 1.25;
   const cw = Math.max(S.W, S.H * VA);
-  return { x: cw * GAIN, y: (cw / VA) * GAIN };
+  return { x: cw * gain, y: (cw / VA) * gain };
 }
 
 const CONN = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
@@ -118,7 +124,7 @@ function newHand(key) {
     key, present: false, miss: 99, raw: null, init: false,
     lm: Array.from({ length: 21 }, () => ({ x: 0, y: 0 })),
     palm: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, px: 120,
-    pinch: false, pinchR: 1, fingers: 0, fistN: 0, fist: false, gesture: '—',
+    pinch: false, pinchR: 1, fingers: 0, fistN: 0, fist: false, prevFist: false, gesture: '—', hud: null,
     pp: { x: 0, y: 0 }, hoverEl: null, dwellT: 0, cool: 0, uiPinch: false, noBurst: false,
     lastRipple: 0, cursor: { x: 0, y: 0 },
   };
@@ -147,7 +153,7 @@ function onResults(res) {
 }
 
 function loseHand(h) {
-  h.present = false; h.pinch = false; h.fist = false; h.fistN = 0; h.gesture = '—';
+  h.present = false; h.pinch = false; h.fist = false; h.prevFist = false; h.fistN = 0; h.gesture = '—';
   if (h.hoverEl) { h.hoverEl.classList.remove('hhover'); h.hoverEl.style.setProperty('--dwell', 0); h.hoverEl = null; }
 }
 
@@ -202,6 +208,8 @@ function updateHands(now) {
 
     if (h.pinch && !was) onPinchStart(h);
     if (!h.pinch && was) onPinchEnd(h);
+    if (h.fist && !h.prevFist && S.mode === 'box') { V.cycleFilter(); syncFilterBtns(); }
+    h.prevFist = h.fist;
   }
   updateTwoHand();
 }
@@ -213,7 +221,7 @@ function onPinchStart(h) {
   if (S.mode === 'cloud') addRipple(h.pp.x, h.pp.y, 150);
 }
 function onPinchEnd(h) {
-  if (!h.uiPinch && !h.noBurst) {
+  if (!h.uiPinch && !h.noBurst && !isV()) {
     if (S.mode === 'cloud') addRipple(h.pp.x, h.pp.y, 220);
     else burst(h.pp.x, h.pp.y, 460, S.mode === 'text' ? 34 : 26);
   }
@@ -222,7 +230,7 @@ function onPinchEnd(h) {
 
 function updateTwoHand() {
   const a = hands.a, b = hands.b;
-  const both = a.present && b.present && a.pinch && b.pinch && !a.uiPinch && !b.uiPinch;
+  const both = !isV() && a.present && b.present && a.pinch && b.pinch && !a.uiPinch && !b.uiPinch;
   if (both) {
     const dist = Math.hypot(a.pp.x - b.pp.x, a.pp.y - b.pp.y);
     const ang = Math.atan2(b.pp.y - a.pp.y, b.pp.x - a.pp.x);
@@ -272,13 +280,15 @@ addEventListener('pointermove', (e) => {
   const x = e.clientX - S.W / 2, y = S.H / 2 - e.clientY;
   mouse.vx = x - mouse.x; mouse.vy = y - mouse.y; mouse.x = x; mouse.y = y; mouse.t = performance.now();
 });
-renderer.domElement.addEventListener('pointerdown', (e) => {
-  mouse.down = true; mouse.t = performance.now();
+addEventListener('pointerdown', (e) => {
+  if (e.target.closest && e.target.closest('.hud')) return;
+  mouse.down = true; mouse.t = performance.now(); mouse.x0 = mouse.x; mouse.y0 = mouse.y;
   if (S.mode === 'cloud') addRipple(mouse.x, mouse.y, 150);
 });
 addEventListener('pointerup', () => {
   if (!mouse.down) return;
   mouse.down = false;
+  if (isV()) return;
   if (S.mode === 'cloud') addRipple(mouse.x, mouse.y, 220);
   else burst(mouse.x, mouse.y, 460, 30);
 });
@@ -299,11 +309,11 @@ function buildForces() {
       const pr = clamp(h.px * 0.85, 60, 220);
       A.push({ x: h.palm.x, y: h.palm.y, r: pr, r2: pr * pr, s: 3.5, vx: h.vel.x, vy: h.vel.y });
     }
-    if (h.pinch && !h.uiPinch && !G.two) Wl.push({ x: h.pp.x, y: h.pp.y, r: 420, r2: 420 * 420, s: 2.4 });
+    if (h.pinch && !h.uiPinch && !G.two && !isV()) Wl.push({ x: h.pp.x, y: h.pp.y, r: 420, r2: 420 * 420, s: 2.4 });
   }
   if (mouseActive()) {
     A.push({ x: mouse.x, y: mouse.y, r: 90, r2: 8100, s: 6, vx: mouse.vx, vy: mouse.vy });
-    if (mouse.down) Wl.push({ x: mouse.x, y: mouse.y, r: 420, r2: 420 * 420, s: 2.4 });
+    if (mouse.down && !isV()) Wl.push({ x: mouse.x, y: mouse.y, r: 420, r2: 420 * 420, s: 2.4 });
     mouse.vx *= 0.8; mouse.vy *= 0.8;
   }
   return { A, Wl };
@@ -637,7 +647,98 @@ function stepCloud(now) {
   }
 }
 
+/* ───────────────────────── MODE 5 — SPIN ORB (손가락으로 돌리는 파티클 꽃) ───────────────────────── */
+// 왼쪽 손 엄지-검지 간격 = Spin(회전 속도), 오른쪽 손 = Particles(퍼짐·난류·촉수)
+const ORB_N = 16000;
+const orbDir = new Float32Array(ORB_N * 3);
+const orbCol = new Float32Array(ORB_N * 3);
+(() => {
+  const stops = [[1.0, 0.45, 0.4], [1.0, 0.7, 0.42], [0.55, 0.85, 0.55], [0.45, 0.62, 1.0], [0.72, 0.52, 1.0]];
+  for (let i = 0; i < ORB_N; i++) {
+    const y = 1 - (2 * (i + 0.5)) / ORB_N, r = Math.sqrt(1 - y * y), th = i * 2.399963;
+    const x = Math.cos(th) * r, z = Math.sin(th) * r;
+    orbDir[i * 3] = x; orbDir[i * 3 + 1] = y; orbDir[i * 3 + 2] = z;
+    const u = (Math.atan2(y, x) / (Math.PI * 2) + 0.5 + z * 0.12 + 1) % 1;
+    const f = u * stops.length, k = Math.floor(f) % stops.length, k2 = (k + 1) % stops.length, w = f - Math.floor(f);
+    const white = Math.random() < 0.12 ? 0.75 : 0;
+    for (let c = 0; c < 3; c++) {
+      const v = stops[k][c] + (stops[k2][c] - stops[k][c]) * w;
+      orbCol[i * 3 + c] = v + (1 - v) * white;
+    }
+  }
+})();
+
+function initOrb() {
+  for (let i = N; i < ORB_N; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * S.W; pos[i * 3 + 1] = (Math.random() - 0.5) * S.H; pos[i * 3 + 2] = 0;
+    vel[i * 3] = vel[i * 3 + 1] = vel[i * 3 + 2] = 0;
+  }
+  N = ORB_N;
+}
+
+function stepOrb(dt) {
+  const O = G.orb;
+  const hs = handList().filter((h) => h.present && h.init).sort((a, b) => a.palm.x - b.palm.x);
+  O.ctrls.length = 0;
+  if (hs.length >= 2) O.ctrls.push({ h: hs[0], name: 'Spin', key: 'spin' }, { h: hs[1], name: 'Particles', key: 'part' });
+  else if (hs.length === 1) {
+    const h = hs[0];
+    O.ctrls.push(h.palm.x < 0 ? { h, name: 'Spin', key: 'spin' } : { h, name: 'Particles', key: 'part' });
+  }
+  for (const c of O.ctrls) {
+    O[c.key] += (clamp((c.h.pinchR - 0.18) / 0.95, 0, 1) - O[c.key]) * 0.2;
+    c.val = O[c.key];
+  }
+  if (!hs.length && mouseActive()) {
+    O.spin += (clamp(mouse.x / S.W + 0.5, 0, 1) - O.spin) * 0.1;
+    O.part += (clamp(mouse.y / S.H + 0.5, 0, 1) - O.part) * 0.1;
+  }
+  O.ang += dt * (0.15 + O.spin * O.spin * 6);
+
+  const { A } = buildForces();
+  const nA = A.length;
+  const R0 = Math.min(S.W, S.H) * 0.2, P = O.part, t = S.t;
+  const tilt = 0.35 + Math.sin(t * 0.2) * 0.15, ct = Math.cos(tilt), st = Math.sin(tilt);
+  for (let i = 0; i < N; i++) {
+    const i3 = i * 3;
+    const dx = orbDir[i3], dy = orbDir[i3 + 1], dz = orbDir[i3 + 2];
+    const n = Math.sin(dx * 3.1 + t * 0.9) * Math.sin(dy * 2.7 - t * 0.7 + dz * 1.3) + Math.sin(dz * 3.3 + dx * 1.7 + t * 0.5) * 0.6;
+    const tend = rnd[i] > 0.82 ? ((rnd[i] - 0.82) / 0.18) ** 2 : 0; // 바깥으로 뻗는 촉수
+    const r = R0 * (0.55 + P * 0.7) * (1 + n * (0.08 + P * 0.35))
+      * (1 + tend * (0.3 + P * 1.6) * (0.6 + 0.4 * Math.sin(t * 1.3 + i)));
+    const sw = n * 0.5 * P + tend * 1.4 * (0.5 + P);
+    const cs = Math.cos(O.ang + sw), sn = Math.sin(O.ang + sw);
+    const x = dx * r, y = dy * r, z = dz * r;
+    const x1 = x * cs + z * sn, z1 = -x * sn + z * cs;
+    const tx = x1, ty = y * ct - z1 * st, tz = y * st + z1 * ct;
+
+    const px = pos[i3], py = pos[i3 + 1], pz = pos[i3 + 2];
+    let ax = (tx - px) * 0.06, ay = (ty - py) * 0.06;
+    const az = (tz - pz) * 0.06;
+    for (let k = 0; k < nA; k++) {
+      const a = A[k];
+      const ddx = px - a.x, ddy = py - a.y, d2 = ddx * ddx + ddy * ddy;
+      if (d2 < a.r2) {
+        const d = Math.sqrt(d2) + 0.01;
+        let f = 1 - d / a.r; f = f * f * a.s;
+        ax += (ddx / d) * f + a.vx * f * 0.08; ay += (ddy / d) * f + a.vy * f * 0.08;
+      }
+    }
+    const vx = (vel[i3] + ax) * 0.86, vy = (vel[i3 + 1] + ay) * 0.86, vz = (vel[i3 + 2] + az) * 0.86;
+    vel[i3] = vx; vel[i3 + 1] = vy; vel[i3 + 2] = vz;
+    pos[i3] = px + vx; pos[i3 + 1] = py + vy; pos[i3 + 2] = pz + vz;
+
+    const heat = Math.min(1, Math.sqrt(vx * vx + vy * vy + vz * vz) / 14);
+    const gl = 0.32 + rnd[i] * 0.22 + heat * 0.35 + tend * 0.15;
+    col[i3] = (orbCol[i3] + (1 - orbCol[i3]) * heat) * gl;
+    col[i3 + 1] = (orbCol[i3 + 1] + (1 - orbCol[i3 + 1]) * heat) * gl;
+    col[i3 + 2] = (orbCol[i3 + 2] + (1 - orbCol[i3 + 2]) * heat) * gl;
+    siz[i] = 1.5 + rnd[i] * 1.8 + heat * 1.5 + tend * 0.8;
+  }
+}
+
 /* ───────────────────────── 오버레이 (커서, 골격, 수치) ───────────────────────── */
+const V = initVfx({ S, G, handList, vid, mouse, mouseActive, camOK: () => camOK, pal: () => PAL });
 const fx = $('#fx'), fctx = fx.getContext('2d');
 const camFx = $('#camFx'), cctx = camFx.getContext('2d');
 function sizeOverlays() {
@@ -674,7 +775,7 @@ function drawOverlay(now) {
       fctx.lineWidth = 2.5; fctx.beginPath();
       fctx.arc(cx, cy, 16, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); fctx.stroke();
     }
-    if (h.pinch && !h.uiPinch) {
+    if (h.pinch && !h.uiPinch && !isV()) {
       const [px, py] = toS(h.pp);
       const pr = 22 + Math.sin(now * 0.012) * 5;
       fctx.strokeStyle = '#fff'; fctx.lineWidth = 1;
@@ -726,24 +827,42 @@ function drawCam() {
 
 /* ───────────────────────── UI 바인딩 ───────────────────────── */
 function setMode(m) {
-  if (!['text', 'flow', 'cloud'].includes(m)) return;
+  if (!MODES.includes(m)) return;
   S.mode = m;
-  document.body.classList.remove('m-text', 'm-flow', 'm-cloud');
+  MODES.forEach((x) => document.body.classList.remove('m-' + x));
   document.body.classList.add('m-' + m);
+  document.body.classList.toggle('vmode', VMODES.has(m));
+  for (const h of handList()) h.init = false; // 좌표 게인이 바뀌므로 스무딩 리셋
   document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
   points.rotation.set(0, 0, 0); points.scale.setScalar(1);
   G.cloudRX = G.cloudRY = 0;
   if (m === 'text') setText(S.text);
   if (m === 'flow') initFlow();
   if (m === 'cloud') initCloud();
+  if (m === 'orb') initOrb();
+  if (m === 'box' || m === 'hud') N = 0;
   applyFx();
-  $('#fistHint').textContent = { text: '흩어 놓기 (펴면 다시 모임)', flow: '시간 정지', cloud: '쥐고 움직여 회전' }[m];
-  $('#twoHint').textContent = { text: '글자 크기·회전', flow: '손 사이 빛줄기', cloud: '확대·회전' }[m];
+  renderHints(m);
+}
+
+const HINTS = {
+  text: [['✋ 펼친 손', '휘젓기·밀어내기'], ['🤏 핀치', '끌어당기기 → 놓으면 폭발'], ['✊ 주먹', '흩어 놓기 (펴면 다시 모임)'], ['🤏🤏 두 손 핀치', '글자 크기·회전']],
+  flow: [['✋ 펼친 손', '소용돌이 + 입자 방출'], ['🤏 핀치', '끌어당기기 → 놓으면 폭발'], ['✊ 주먹', '시간 정지'], ['🤏🤏 두 손 핀치', '손 사이 빛줄기']],
+  cloud: [['✋ 펼친 손', '막 누르기'], ['🤏 핀치', '파문'], ['✊ 주먹', '쥐고 움직여 회전'], ['🤏🤏 두 손 핀치', '확대·회전']],
+  box: [['🙌 두 손 엄지·검지', '상자 양 끝 잡기'], ['↔ 손 사이 거리', '상자 길이'], ['🤏 엄지-검지 간격', '높이·픽셀 크기'], ['✊ 주먹', '필터 전환'], ['☝ 한 손', '엄지-검지 사각형']],
+  orb: [['👈 왼쪽 손 엄지-검지', 'Spin 회전 속도'], ['👉 오른쪽 손 엄지-검지', 'Particles 퍼짐·촉수'], ['✋ 오브에 손 넣기', '밀어내기'], ['Space', '폭발']],
+  hud: [['✋ 손바닥', 'HUD 위치'], ['↻ 손 기울기', 'ROTATION · 음높이'], ['🤏 엄지-검지', 'DISTANCE · 크기·필터'], ['💨 빠른 움직임', 'VELOCITY'], ['SYNTH / MIC', '소리 반응']],
+};
+function renderHints(m) {
+  const esc = (x) => x.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  $('#hints').innerHTML = HINTS[m].map(([k, v]) => `<span><b>${esc(k)}</b> ${esc(v)}</span>`).join('')
+    + '<span><b>☝ 버튼 위에 손가락</b> 잠시 두면 클릭</span>'
+    + '<span class="keys">1~6 모드 · H UI 숨김 · C 카메라 · 마우스도 가능</span>';
 }
 function applyFx() {
-  const base = { text: 0.8, flow: 0.86, cloud: 0.5 }[S.mode];
+  const base = { text: 0.8, flow: 0.86, cloud: 0.5, orb: 0.84 }[S.mode] ?? 0;
   after.uniforms.damp.value = S.trails ? base : 0.0;
-  bloom.strength = { text: 0.75, flow: 0.8, cloud: 0.65 }[S.mode];
+  bloom.strength = { text: 0.75, flow: 0.8, cloud: 0.65, orb: 0.95 }[S.mode] ?? 0.7;
   document.querySelector('[data-toggle="trails"]').classList.toggle('on', S.trails);
   document.querySelector('[data-toggle="skel"]').classList.toggle('on', S.skel);
 }
@@ -765,6 +884,21 @@ document.querySelectorAll('[data-toggle]').forEach((b) => b.addEventListener('cl
   if (b.dataset.toggle === 'skel') S.skel = !S.skel;
   applyFx();
 }));
+function syncFilterBtns() {
+  document.querySelectorAll('[data-filter]').forEach((b) => b.classList.toggle('on', b.dataset.filter === V.box.filter));
+}
+function syncLayerBtns() {
+  document.querySelectorAll('[data-layer]').forEach((b) => b.classList.toggle('on', !!V.layers[b.dataset.layer]));
+  document.querySelectorAll('[data-audio]').forEach((b) => b.classList.toggle('on', !!V.audio[b.dataset.audio]));
+}
+document.querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => { V.setFilter(b.dataset.filter); syncFilterBtns(); }));
+document.querySelectorAll('[data-layer]').forEach((b) => b.addEventListener('click', () => {
+  V.layers[b.dataset.layer] = !V.layers[b.dataset.layer]; syncLayerBtns();
+}));
+document.querySelectorAll('[data-audio]').forEach((b) => b.addEventListener('click', async () => {
+  if (b.dataset.audio === 'synth') V.audio.toggleSynth(); else await V.audio.toggleMic();
+  syncLayerBtns();
+}));
 $('#txt').addEventListener('keydown', (e) => {
   e.stopPropagation();
   if (e.key === 'Enter') {
@@ -777,6 +911,9 @@ addEventListener('keydown', (e) => {
   if (e.key === '1') setMode('text');
   else if (e.key === '2') setMode('flow');
   else if (e.key === '3') setMode('cloud');
+  else if (e.key === '4') setMode('box');
+  else if (e.key === '5') setMode('orb');
+  else if (e.key === '6') setMode('hud');
   else if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('noui');
   else if (e.key === 'c' || e.key === 'C') document.body.classList.toggle('nocam');
   else if (e.key === ' ') { burst(0, 0, Math.max(S.W, S.H), 30); e.preventDefault(); }
@@ -791,6 +928,7 @@ function onResize() {
   camera.updateProjectionMatrix();
   mat.uniforms.uDist.value = camDist();
   sizeOverlays();
+  V.resize();
   if (S.mode === 'text') setText(S.text);
 }
 addEventListener('resize', onResize);
@@ -816,7 +954,8 @@ function loop(now) {
 
   if (S.mode === 'text') stepText();
   else if (S.mode === 'flow') stepFlow();
-  else stepCloud(now);
+  else if (S.mode === 'cloud') stepCloud(now);
+  else if (S.mode === 'orb') stepOrb(dt);
 
   geo.setDrawRange(0, N);
   aPos.needsUpdate = aCol.needsUpdate = aSiz.needsUpdate = true;
@@ -826,8 +965,9 @@ function loop(now) {
     camera.position.y = Math.cos(S.t * 0.19) * S.H * 0.012;
   } else { camera.position.x *= 0.9; camera.position.y *= 0.9; }
   camera.lookAt(0, 0, 0);
-  composer.render();
+  if (N > 0) composer.render(); // 04 BOX / 06 HUD 는 파티클 없이 2D 합성만
 
+  V.draw(S.t);
   drawOverlay(now);
   drawCam();
 
@@ -837,12 +977,15 @@ function loop(now) {
     const foot = $('#camFoot').querySelectorAll('span');
     foot[0].textContent = hands.a.present ? `${hands.a.gesture} ${hands.a.pinchR.toFixed(2)}` : '—';
     foot[1].textContent = hands.b.present ? `${hands.b.gesture} ${hands.b.pinchR.toFixed(2)}` : '—';
-    if (landmarker) setStatus(`${S.mode.toUpperCase()} · ${N.toLocaleString()} particles · detect ${detMs.toFixed(1)}ms`);
+    const what = S.mode === 'box' ? `filter ${V.box.filter} · cell ${V.box.cell}px`
+      : S.mode === 'hud' ? V.audio.label() : `${N.toLocaleString()} particles`;
+    if (landmarker) setStatus(`${S.mode.toUpperCase()} · ${what} · detect ${detMs.toFixed(1)}ms`);
   }
 }
 
 /* ───────────────────────── 부팅 ───────────────────────── */
 async function boot() {
+  syncFilterBtns(); syncLayerBtns();
   setMode('text');
   setPalette('ice');
   document.querySelector('[data-text="A"]').classList.add('on');
@@ -856,6 +999,9 @@ async function boot() {
     });
     vid.srcObject = stream;
     await vid.play();
+    const bgv = $('#bgv');
+    bgv.srcObject = stream;
+    bgv.play().catch(() => {});
     VA = vid.videoWidth / vid.videoHeight || 16 / 9;
     $('#camView').style.aspectRatio = `${vid.videoWidth} / ${vid.videoHeight}`;
     $('#camEmpty').style.display = 'none';
@@ -887,4 +1033,4 @@ async function boot() {
 boot().catch((e) => { console.error(e); setStatus('오류: ' + e.message); });
 
 // 디버그용 훅 (콘솔에서 상태 확인/가짜 손 주입)
-window.__hf = { S, G, hands, onResults, setMode, setText, setPalette, get landmarker() { return landmarker; }, get camOK() { return camOK; } };
+window.__hf = { S, G, V, hands, onResults, setMode, setText, setPalette, get landmarker() { return landmarker; }, get camOK() { return camOK; } };

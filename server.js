@@ -15,6 +15,9 @@ const MIME = {
   '.json': 'application/json',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
+  '.woff2': 'font/woff2',
+  '.tflite': 'application/octet-stream',
 };
 
 http.createServer((req, res) => {

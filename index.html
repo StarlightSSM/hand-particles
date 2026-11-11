@@ -13,7 +13,9 @@
 </script>
 </head>
 <body>
+  <video id="bgv" playsinline muted></video>
   <div id="stage"></div>
+  <canvas id="vfx"></canvas>
   <canvas id="fx"></canvas>
 
   <!-- 좌상단: 타이틀 -->
@@ -26,9 +28,18 @@
   <nav class="hud left">
     <section class="node">
       <div class="node-h">MODE</div>
-      <button class="hbtn" data-mode="text"><b>01</b> PARTICLE TEXT</button>
-      <button class="hbtn" data-mode="flow"><b>02</b> FLOW FIELD</button>
-      <button class="hbtn" data-mode="cloud"><b>03</b> POINT CLOUD</button>
+      <div class="row">
+        <button class="hbtn" data-mode="text"><b>01</b>TEXT</button>
+        <button class="hbtn" data-mode="flow"><b>02</b>FLOW</button>
+      </div>
+      <div class="row">
+        <button class="hbtn" data-mode="cloud"><b>03</b>CLOUD</button>
+        <button class="hbtn" data-mode="box"><b>04</b>BOX</button>
+      </div>
+      <div class="row">
+        <button class="hbtn" data-mode="orb"><b>05</b>ORB</button>
+        <button class="hbtn" data-mode="hud"><b>06</b>HUD</button>
+      </div>
     </section>
     <section class="node">
       <div class="node-h">COLOR</div>
@@ -53,6 +64,33 @@
       </div>
       <input id="txt" maxlength="12" placeholder="직접 입력 + Enter" spellcheck="false">
     </section>
+    <section class="node" id="boxNode">
+      <div class="node-h">FILTER <span>✊ 주먹 = 다음</span></div>
+      <div class="row">
+        <button class="hbtn" data-filter="mosaic">MOSAIC</button>
+        <button class="hbtn" data-filter="dither">DITHER</button>
+      </div>
+      <div class="row">
+        <button class="hbtn" data-filter="thermal">THERMAL</button>
+        <button class="hbtn" data-filter="ascii">ASCII</button>
+      </div>
+    </section>
+    <section class="node" id="hudNode">
+      <div class="node-h">LAYERS</div>
+      <div class="row">
+        <button class="hbtn" data-layer="bars">BARS</button>
+        <button class="hbtn" data-layer="ticks">TICKS</button>
+      </div>
+      <div class="row">
+        <button class="hbtn" data-layer="rings">RINGS</button>
+        <button class="hbtn" data-layer="labels">LABELS</button>
+      </div>
+      <div class="node-h sub-h">AUDIO</div>
+      <div class="row">
+        <button class="hbtn" data-audio="synth">SYNTH</button>
+        <button class="hbtn" data-audio="mic">MIC</button>
+      </div>
+    </section>
     <section class="node">
       <div class="node-h">FX</div>
       <div class="row">
@@ -76,15 +114,8 @@
     </div>
   </aside>
 
-  <!-- 하단: 제스처 안내 -->
-  <footer class="hud bottom">
-    <span><b>✋ 펼친 손</b> 휘젓기·밀어내기</span>
-    <span><b>🤏 핀치</b> 끌어당기기 → 놓으면 폭발</span>
-    <span><b>✊ 주먹</b> <em id="fistHint">흩어 놓기</em></span>
-    <span><b>🤏🤏 두 손 핀치</b> <em id="twoHint">크기·회전</em></span>
-    <span><b>☝ 버튼 위에 손가락</b> 잠시 두면 클릭</span>
-    <span class="keys">1·2·3 모드 · H UI 숨김 · C 카메라 · 마우스도 가능</span>
-  </footer>
+  <!-- 하단: 제스처 안내 (모드별로 main.js가 채움) -->
+  <footer class="hud bottom" id="hints"></footer>
 
   <script type="module" src="main.js"></script>
 </body>

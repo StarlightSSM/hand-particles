@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hello, stranger</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='17' rx='9' ry='11' fill='%232a2a33'/%3E%3Ccircle cx='13' cy='13' r='3' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="hello/style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js" } }
+</script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- 시작 화면 (소리·카메라는 사용자 클릭이 있어야 시작 가능) -->
+  <div id="begin" class="ui" role="button" tabindex="0">
+    <div class="b-title">hello, stranger</div>
+    <div class="b-ko">안녕, 낯선 이</div>
+    <div class="b-line"></div>
+    <div class="b-go">눌러서 시작</div>
+    <div class="b-note">카메라로 손과 얼굴을 봐요 · 영상은 이 기기 밖으로 나가지 않아요 · 헤드폰 권장</div>
+  </div>
+
+  <div id="keys" class="ui">
+    <b>F</b> 전체화면 &nbsp; <b>M</b> 소리 &nbsp; <b>R</b> 처음부터 &nbsp; <b>⇧R</b> 기억 지우고 처음부터 &nbsp; <b>D</b> 센서 보기
+  </div>
+  <div id="toast" class="ui"></div>
+  <div id="debug" class="ui" hidden><canvas width="240" height="135"></canvas><pre></pre></div>
+
+  <script type="module" src="hello/main.js"></script>
+</body>
+</html>
