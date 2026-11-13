@@ -194,6 +194,18 @@ export const TOPICS = [
     then: { yes: 'rps', maybe: 'rps' },
   },
 
+  {
+    id: 'comfort', type: 'yesno', mood: 'sad',
+    when: () => false, // 자동으로 고르지 않음 — 표정이 슬퍼 보일 때 director가 꺼냄
+    ask: '…혹시 힘든 일 있었어?',
+    reply: {
+      yes: [['그랬구나…', 'sad'], ['여기선 아무것도 안 해도 돼.', 'smile'], ['같이 물결 보자. 내가 옆에 있을게.', 'smile']],
+      no: [['그럼 다행이야.', 'smile'], ['내가 괜히 걱정했나 봐. 헤헤.', 'shy']],
+      text: [['{you}…', 'sad'], ['말해 줘서 고마워. 나는 네 편이야.', 'smile']],
+    },
+    remember: (a) => (a.kind === 'yes' ? { lastMood: 'bad' } : {}),
+  },
+
   // ── 혼잣말 (대답 없음) ──
   { id: 'muse1', type: 'muse', ask: ['있잖아, 물결은 왜 동그랄까?', '…네모난 물결은 없을까?'] },
   { id: 'muse2', type: 'muse', ask: (c) => [`오늘 물결 세어 봤는데, ${c.n}번이었어.`, c.n > 10 ? '네가 많이 놀아 줬네!' : '내일은 더 많이 만들자.'] },
@@ -211,6 +223,15 @@ export const HINTS = {
   yesno: '👍 응   👎 아니',
   free: '⏎ Enter 를 눌러 적어 주세요',
 };
+// 질문 종류 → 화면에 보여 줄 선택지 [{ key, icon, label }] (아이콘이 곧 손 모양)
+export function choicesFor(topic) {
+  if (topic.type === 'mood') return [{ key: 'good', icon: '👍', label: '좋아' }, { key: 'soso', icon: '✋', label: '그저 그래' }, { key: 'bad', icon: '👎', label: '별로' }];
+  if (topic.type === 'yesno') return [{ key: 'yes', icon: '👍', label: '응' }, { key: 'no', icon: '👎', label: '아니' }];
+  if (topic.type === 'choice') return topic.options.map((o, i) => ({ key: i, icon: ['☝', '✌', '🤟'][i], label: o.label }));
+  return [];
+}
+export const GESTURE_OF = { '👍': 'thumbsUp', '👎': 'thumbsDown', '✋': 'open', '☝': 'one', '✌': 'peace', '🤟': 'three', '✊': 'fist' };
+
 export const hintFor = (topic) =>
   (topic.type === 'choice' ? topic.options.map((o, i) => `${['☝', '✌', '🤟'][i]} ${o.label}`).join('    ') : HINTS[topic.type] || '')
   + (topic.type !== 'free' ? '    ·    ⏎ 직접 말하기' : '');

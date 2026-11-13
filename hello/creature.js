@@ -46,8 +46,10 @@ export function createCreature(canvas, hooks = {}) {
   };
 
   /* ───────────────────── 크기 ───────────────────── */
-  function resize() {
-    DPR = Math.min(devicePixelRatio || 1, 1.5);
+  let dprCap = 1.5;
+  function resize(cap = dprCap) {
+    dprCap = cap;
+    DPR = Math.min(devicePixelRatio || 1, cap);
     W = innerWidth; H = innerHeight;
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
     E = clamp(Math.min(W, H * 1.25) * 0.165, 70, 260);
@@ -165,6 +167,7 @@ export function createCreature(canvas, hooks = {}) {
     drawMemento();
     if (st.presence > 0.003) drawFace();
     drawTexts();
+    drawChoices();
   }
 
   function facePose() {
@@ -466,6 +469,61 @@ export function createCreature(canvas, hooks = {}) {
     g.restore();
   }
 
+  /* ───────────────────── 선택지 (손 모양을 유지하면 아래 줄이 차오름) ───────────────────── */
+  let choice = null; // { items, t0, active, prog, picked, pickT, rects }
+  function drawChoices() {
+    if (!choice) return;
+    const C0 = choice, k = st.t - C0.t0;
+    const out = C0.picked != null ? sstep(0.35, 0.9, st.t - C0.pickT) : 0;
+    if (out >= 1) { choice = null; document.body.classList.remove('choosing'); return; }
+    const fs = clamp(E * 0.13, 14, 18), ifs = fs * 1.7;
+    const y = H * 0.865;
+    g.save();
+    g.textBaseline = 'middle';
+    const sizes = C0.items.map((it) => {
+      g.font = `400 ${ifs}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`; const iw = g.measureText(it.icon).width;
+      g.font = `400 ${fs}px "Gowun Batang", serif`; const lw = g.measureText(it.label).width;
+      return { iw, lw, w: iw + fs * 0.5 + lw };
+    });
+    const gap = fs * 2.6;
+    const total = sizes.reduce((a, b) => a + b.w, 0) + gap * (sizes.length - 1);
+    let x = W / 2 - total / 2;
+    C0.rects = [];
+    C0.items.forEach((it, i) => {
+      const sz = sizes[i];
+      const isA = C0.active === it.key, isP = C0.picked === it.key;
+      const appear = sstep(0, 0.35, k - i * 0.06);
+      let a = appear * (1 - out) * (C0.picked != null && !isP ? 0.25 : C0.active != null && !isA ? 0.5 : 1);
+      const sc = isP ? 1.18 : isA ? 1 + 0.08 * C0.prog : 1;
+      const cx = x + sz.w / 2;
+      g.save();
+      g.globalAlpha = a;
+      g.translate(cx, y + (1 - appear) * 8); g.scale(sc, sc); g.translate(-cx, -y);
+      g.font = `400 ${ifs}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+      g.fillStyle = '#000';
+      g.fillText(it.icon, x, y);
+      g.font = `400 ${fs}px "Gowun Batang", serif`;
+      g.fillStyle = isA || isP ? 'rgba(34,34,44,0.95)' : 'rgba(70,70,82,0.75)';
+      g.fillText(it.label, x + sz.iw + fs * 0.5, y + 1);
+      // 밑줄: 기본은 옅게, 유지하는 동안 진하게 차오름
+      const ly = y + ifs * 0.62;
+      g.fillStyle = 'rgba(52,52,64,0.14)'; g.fillRect(x, ly, sz.w, 1.5);
+      const p = isP ? 1 : isA ? clamp(C0.prog, 0, 1) : 0;
+      if (p > 0) { g.fillStyle = 'rgba(40,40,52,0.85)'; g.fillRect(x, ly - 0.5, sz.w * p, 2.5); }
+      g.restore();
+      C0.rects.push({ key: it.key, x: x - fs * 0.6, y: y - ifs, w: sz.w + fs * 1.2, h: ifs * 2 });
+      x += sz.w + gap;
+    });
+    if (C0.note) {
+      g.font = `400 ${clamp(E * 0.1, 11, 13)}px "Gowun Batang", serif`;
+      g.letterSpacing = '0.08em';
+      g.fillStyle = `rgba(90,90,102,${0.6 * sstep(0.2, 0.8, k) * (1 - out)})`;
+      g.textAlign = 'center';
+      g.fillText(C0.note, W / 2, y + ifs * 1.35);
+    }
+    g.restore();
+  }
+
   /* ───────────────────── 글씨 (말풍선 없이 잉크로) ───────────────────── */
   const texts = []; // {kind, text, t0, times[], shown, holdUntil, fadeT, res}
   const FONT = {
@@ -590,6 +648,18 @@ export function createCreature(canvas, hooks = {}) {
     bounce(a = 1) { st.bounceT = st.t; st.bounceAmp = a; },
     identity(h, s, l = 0.4) { st.tHue = h; st.tSat = s; st.tLit = l; },
     sparkle(v) { st.tSparkle = v; },
+    choices(items, note = '손 모양을 잠깐 유지하거나 · 검지로 톡 · ⏎ 직접 말하기') {
+      choice = { items, t0: st.t, active: null, prog: 0, picked: null, pickT: 0, rects: [], note };
+      document.body.classList.add('choosing');
+    },
+    choiceProgress(key, p) { if (choice && choice.picked == null) { choice.active = key; choice.prog = p; } },
+    choicePick(key) { if (choice && choice.picked == null) { choice.picked = key; choice.pickT = st.t; } },
+    clearChoices() { if (choice && choice.picked == null) { choice.picked = '__none'; choice.pickT = st.t - 0.35; } },
+    choiceAt(x, y) {
+      if (!choice || choice.picked != null) return null;
+      const r = choice.rects.find((q) => x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h);
+      return r ? r.key : null;
+    },
     memento(src) { if (!src) return; const img = new Image(); img.src = src; memento = { img, t0: st.t }; },
     wink(side = 1, dur = 0.7) { st.winkSide = side; st.winkUntil = st.t + dur; },
     get conv() { return st.conv; },
