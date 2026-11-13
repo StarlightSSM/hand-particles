@@ -19,17 +19,23 @@
     <div class="b-ko">안녕, 낯선 이</div>
     <div class="b-line"></div>
     <div class="b-go">눌러서 시작</div>
-    <div class="b-note">카메라로 손과 얼굴을 봐요 · 영상은 이 기기 밖으로 나가지 않아요 · 헤드폰 권장</div>
+    <div class="b-note">카메라로 손과 얼굴을 봐요 · 얼굴을 기억하기 전엔 꼭 물어봐요 · 영상과 얼굴 정보는 이 기기 밖으로 나가지 않아요 · 헤드폰 권장</div>
   </div>
 
   <div id="keys" class="ui">
-    <b>F</b> 전체화면 &nbsp; <b>M</b> 소리 &nbsp; <b>R</b> 처음부터 &nbsp; <b>⇧R</b> 기억 지우고 처음부터 &nbsp; <b>D</b> 센서 보기 &nbsp; <b>Enter</b> 말 걸기
+    <b>F</b> 전체화면 &nbsp; <b>M</b> 소리 &nbsp; <b>R</b> 처음부터 &nbsp; <b>⇧R</b> 기억 지우고 처음부터 &nbsp; <b>D</b> 센서 보기 &nbsp; <b>Enter</b> 말 걸기 &nbsp; <b>L</b> 기억하는 얼굴
   </div>
   <div id="toast" class="ui"></div>
   <!-- 아이에게 말 걸기: Enter 로 열고, Enter 로 보내기, Esc 로 닫기 -->
   <form id="talk" class="ui" autocomplete="off">
     <input id="talkIn" maxlength="40" placeholder="아이에게 말 걸기 · Enter" spellcheck="false">
   </form>
+  <!-- 기억하는 얼굴 목록 — 이 기기에만 저장 -->
+  <div id="faces" class="ui" hidden>
+    <div class="f-head"><span>기억하는 얼굴</span><button id="facesClose" aria-label="닫기">×</button></div>
+    <ul></ul>
+    <div class="f-foot"><span>얼굴 정보는 이 기기에만 저장돼요</span><button id="facesClear">모두 잊기</button></div>
+  </div>
   <div id="debug" class="ui" hidden><canvas width="240" height="135"></canvas><pre></pre></div>
 
   <script type="module" src="hello/main.js"></script>

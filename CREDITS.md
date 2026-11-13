@@ -6,6 +6,8 @@
 | three.js r160 | https://github.com/mrdoob/three.js | MIT |
 | MediaPipe Tasks Vision (wasm, bundle) | https://github.com/google-ai-edge/mediapipe | Apache-2.0 |
 | hand_landmarker.task, blaze_face_short_range.tflite | Google MediaPipe models (storage.googleapis.com/mediapipe-models) | Apache-2.0 |
+| @vladmandic/face-api 1.7.15 (+ 번들된 TensorFlow.js) | https://github.com/vladmandic/face-api | MIT — `vendor/face-api/LICENSE` |
+| tiny_face_detector, face_landmark_68, face_recognition 모델 | face-api.js 모델 (face_recognition은 dlib ResNet 기반) | MIT (face-api.js) |
 | Gaegu (Regular/Bold) | https://github.com/google/fonts/tree/main/ofl/gaegu | SIL OFL 1.1 — `assets/fonts/OFL-gaegu.txt` |
 | Gowun Batang | https://github.com/google/fonts/tree/main/ofl/gowunbatang | SIL OFL 1.1 — `assets/fonts/OFL-gowunbatang.txt` |
 

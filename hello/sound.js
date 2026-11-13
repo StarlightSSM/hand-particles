@@ -126,6 +126,19 @@ export function createSound() {
     [0, 0.12].forEach((d) => setTimeout(() => blip('응', 0, 2, ''), 350 + d * 1000));
   }
 
+  /* 찰칵 — 두 번의 짧은 기계음 */
+  function shutter() {
+    if (!ok()) return;
+    const ctx = S.ctx, t = ctx.currentTime;
+    for (const [d, f, v] of [[0, 3200, 0.16], [0.075, 2100, 0.11]]) {
+      const nz = ctx.createBufferSource(); nz.buffer = S.noise;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 2.5;
+      const g = ctx.createGain(); env(g, t + d, v, 0.001, 0.045);
+      nz.connect(bp); bp.connect(g); route(g, 0, 0.25);
+      nz.start(t + d, Math.random()); nz.stop(t + d + 0.06);
+    }
+  }
+
   /* 종소리 아르페지오 */
   function chime(notes = [74, 78, 81, 86, 88], gap = 0.13, vol = 0.07) {
     if (!ok()) return;
@@ -193,5 +206,5 @@ export function createSound() {
     if (S.out) S.out.gain.setTargetAtTime(m ? 0 : S.vol, S.ctx.currentTime, 0.1);
   }
 
-  return Object.assign(S, { init, drop, blip, setVoice, flinch, giggle, purr, chime, swell, ambient, setMuted });
+  return Object.assign(S, { init, drop, blip, setVoice, flinch, giggle, purr, shutter, chime, swell, ambient, setMuted });
 }

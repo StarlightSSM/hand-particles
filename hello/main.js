@@ -5,6 +5,7 @@ import { createCreature } from './creature.js';
 import { createSound } from './sound.js';
 import { createSense } from './sense.js';
 import { createDirector } from './director.js';
+import { createFaceId } from './faceid.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -26,7 +27,8 @@ const creature = createCreature(inkCanvas, {
 water = createWater(renderer, inkCanvas);
 let director = null;
 const sense = createSense((type, data) => director?.emit(type, data));
-director = createDirector({ C: creature, water, sound, sense });
+const faces = createFaceId(sense.vid);
+director = createDirector({ C: creature, water, sound, sense, faces });
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
@@ -61,7 +63,7 @@ async function start() {
   sound.init();
   document.body.classList.add('started');
   try { await document.fonts.load('700 40px "Gaegu"'); await document.fonts.load('400 20px "Gowun Batang"'); } catch { /* */ }
-  sense.start().catch((e) => console.warn(e));
+  sense.start().then(() => { if (sense.cam) faces.load(); }).catch((e) => console.warn(e));
   director.run();
 }
 $('#begin').addEventListener('click', start);
@@ -85,12 +87,15 @@ talkIn.addEventListener('blur', () => { if (!talkIn.value.trim()) talkForm.class
 addEventListener('keydown', (e) => {
   if (!started && (e.key === 'Enter' || e.key === ' ')) { start(); return; }
   if (e.key === 'Enter' && started && !e.isComposing) { e.preventDefault(); openTalk(); return; }
-  const k = e.key.toLowerCase();
+  // 한글 입력 상태에서도 동작하도록 키 위치(code) 기준
+  const k = ({ KeyF: 'f', KeyM: 'm', KeyR: 'r', KeyD: 'd', KeyH: 'h', KeyL: 'l' })[e.code] ?? e.key.toLowerCase();
   if (k === 'm') { sound.setMuted(!sound.muted); toast(sound.muted ? '소리 끔' : '소리 켬'); }
   else if (k === 'f') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }
   else if (k === 'r' && started) { director.restart({ forget: e.shiftKey }); toast(e.shiftKey ? '처음부터 (기억 지움)' : '처음부터'); }
   else if (k === 'd') { debug = !debug; $('#debug').hidden = !debug; }
   else if (k === 'h' || k === '?') $('#keys').classList.toggle('show');
+  else if (k === 'l') toggleFaces();
+  else if (e.key === 'Escape') $('#faces').hidden = true;
 });
 
 let toastT = 0;
@@ -114,10 +119,36 @@ function drawDebug() {
     `phase   ${director.phase}\nhands   ${sense.handsN}  motion ${sense.motion.toFixed(2)}  still ${sense.still.toFixed(1)}\n` +
     `face    ${sense.face ? `${sense.face.size.toFixed(2)} (${sense.face.nx.toFixed(2)}, ${sense.face.ny.toFixed(2)})` : '—'}\n` +
     `away    ${sense.away.toFixed(1)}  idle ${sense.idle.toFixed(1)}\n` +
-    `gesture ${sense.gesture ?? '—'}  asking ${director.asking}
-` +
+    `gesture ${sense.gesture ?? '—'}  asking ${director.asking}\n` +
+    `faceid  ${faces.ready ? 'ready' : faces.err ? 'error' : 'loading'}  ${faces.last ? `${faces.last.status} d=${faces.last.d?.toFixed?.(3)} ${faces.last.who ?? ''}` : ''}  now ${director.person?.callName ?? (director.person ? '(이름 없음)' : '—')}\n` +
     `traits  warm ${tr.warm.toFixed(1)} play ${tr.play.toFixed(1)} calm ${tr.calm.toFixed(1)} gaze ${tr.gaze.toFixed(1)}\n` +
     `tips    ${sense.tips.map((t) => `${t.key}:${t.hover.toFixed(2)}/${t.dwell.toFixed(2)}`).join(' ')}`;
 }
 
-window.__hello = { creature, director, sense, water, sound };
+/* ───────── 기억하는 얼굴 목록 (L) ───────── */
+function toggleFaces(show = $('#faces').hidden) {
+  const box = $('#faces');
+  box.hidden = !show;
+  if (!show) return;
+  const L = faces.list();
+  const ul = box.querySelector('ul');
+  ul.innerHTML = '';
+  if (!L.length) ul.innerHTML = '<li class="empty">아직 기억하는 얼굴이 없어요.</li>';
+  for (const p of L) {
+    const li = document.createElement('li');
+    const img = document.createElement('img'); img.alt = ''; if (p.thumb) img.src = p.thumb;
+    const info = document.createElement('div');
+    const nm = document.createElement('b'); nm.textContent = p.callName || '이름 모를 친구';
+    const meta = document.createElement('span');
+    meta.textContent = `${p.visits || 1}번 만남 · 마지막 ${new Date(p.lastSeen).toLocaleDateString('ko-KR')} · 얼굴 ${p.samples.length}장`;
+    info.append(nm, meta);
+    const del = document.createElement('button'); del.textContent = '잊기';
+    del.addEventListener('click', () => { faces.remove(p.id); toggleFaces(true); });
+    li.append(img, info, del);
+    ul.append(li);
+  }
+}
+$('#facesClose').addEventListener('click', () => toggleFaces(false));
+$('#facesClear').addEventListener('click', () => { faces.clear(); toggleFaces(true); });
+
+window.__hello = { creature, director, sense, water, sound, faces };

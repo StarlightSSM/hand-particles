@@ -44,7 +44,7 @@ const REACT = {
   cross: [['으으, 눈이 몰려…', 'surprised']],
 };
 
-export function createDirector({ C, water, sound, sense }) {
+export function createDirector({ C, water, sound, sense, faces }) {
   let T = 0, gen = 0;
   const timers = [], waiters = [], polls = [], tweens = [], afters = [];
   const later = (s, fn) => afters.push({ at: T + s, fn });
@@ -53,6 +53,8 @@ export function createDirector({ C, water, sound, sense }) {
   let teach = 1;              // 3막에서 가르침 가중치 ↑
   let lastTapT = -99, lastLineT = -99, awake = false, phase = 'surface', name = null;
   let asking = false, tapCount = 0, days0 = null, lastWasMuse = false, petT = 0;
+  let person = null, anon = false, recogP = null;
+  let lastText = null; // 방금 적은 말 — 질문이 다 끝나기 전에 대답해도 받아 주기 위해 // 지금 마주한 사람 (얼굴로 알아본 친구) / 이름 모를 손님
   const asked = new Set(), nearTaps = [];
   const cancel = () => { throw 'cancel'; };
 
@@ -69,10 +71,24 @@ export function createDirector({ C, water, sound, sense }) {
 
   function emit(type, data = {}) {
     reflex(type, data);
+    if (type === 'text') lastText = { text: data.text, T, used: false };
     for (let i = waiters.length - 1; i >= 0; i--) {
       const w = waiters[i];
-      if (w.types.has(type)) { waiters.splice(i, 1); w.res({ type, ...data }); }
+      if (w.types.has(type)) {
+        waiters.splice(i, 1); w.res({ type, ...data });
+        if (type === 'text') lastText.used = true;
+      }
     }
+  }
+  // 질문하는 동안(아직 기다리기 전) 먼저 적은 말이 있으면 그걸 대답으로
+  function recentText(maxAge = 6) {
+    if (!lastText || lastText.used || T - lastText.T > maxAge) return null;
+    lastText.used = true;
+    return lastText.text;
+  }
+  async function waitAnswer(types, timeout) {
+    const t = types.includes('text') ? recentText() : null;
+    return t != null ? { type: 'text', text: t } : waitFor(types, timeout);
   }
 
   /* ───────── 반사 반응 (언제나) ───────── */
@@ -214,6 +230,7 @@ export function createDirector({ C, water, sound, sense }) {
 
   async function act1() {
     phase = 'awaken';
+    if (load()?.name) recogP = recognize(10);
     const c = C.center;
     const cl = water.cloud;
     cl.x = c.x / innerWidth; cl.y = 1 - c.y / innerHeight; cl.z = 0.02; cl.w = 0;
@@ -255,26 +272,16 @@ export function createDirector({ C, water, sound, sense }) {
     C.look('auto');
 
     const mem = load();
-    remember({ lastVisit: dayStr(), visits: (mem?.visits || 0) + 1 });
-    if (mem?.name) {
-      await wait(0.8);
-      C.mood('thinking');
-      await say('…어?');
-      await say('너, 본 적 있어.');
+    if (mem?.name) { // 이미 이름이 있는 아이 → 누구인지 알아본다
       name = mem.name;
       const tr = TRAITS[mem.trait] || TRAITS.warm;
-      C.identity(tr.hue, tr.sat, tr.lit); C.sparkle(0.8);
-      C.mood('happy'); C.bounce(1); sound.chime();
-      await say(`나야, ${name}!`);
-      if (days0 === 0) await say('또 왔네! 헤헤.');
-      else if (days0 === 1) await say('어제 보고 또 보네. 반가워!');
-      else if (days0 > 1) { C.mood('shy', 2); await say(`${days0}일 만이야. 보고 싶었어.`); }
-      else await say('다시 와 줬구나.');
-      const h = new Date().getHours();
-      C.mood('smile');
-      await say(h >= 5 && h < 11 ? '좋은 아침!' : h >= 22 || h < 5 ? '이 시간까지 안 자? 헤헤.' : h >= 18 ? '좋은 저녁이야.' : '오늘도 와 줘서 고마워.');
+      C.identity(tr.hue, tr.sat, tr.lit);
+      sound.setVoice(1);
+      await wait(0.6);
+      await meetAgain();
       return 'remembered';
     }
+    remember({ lastVisit: dayStr(), visits: 1 });
     const r = await waitFor(['tap', 'wave', 'move', 'handIn'], 7);
     if (r.type === 'timeout') {
       C.mood('sad'); C.tiltTo(0.1);
@@ -429,7 +436,16 @@ export function createDirector({ C, water, sound, sense }) {
     C.mood('happy'); C.bounce(0.8); sound.giggle();
     await say('고마워.', { hold: 1.8 });
     C.mood('smile'); C.tiltTo(0); C.sparkle(0.6);
-    remember({ name, trait: key });
+    rememberCreature({ name, trait: key, born: dayStr() });
+    if (sense.cam && faces) {
+      await wait(0.8);
+      C.mood('shy'); C.tiltTo(0.06);
+      await say('있잖아… 다음에 와도 너를 알아보고 싶어.');
+      C.tiltTo(0);
+      const p = await captureFriend(null, true);
+      if (p) person = p;
+      C.mood('smile');
+    }
     sound.ambient(0.75, 0.55, 6);
     C.caption('title', 'hello, stranger', { hold: 7 });
     C.caption('sub', `— ${name}`, { hold: 7, y: innerHeight * 0.86 });
@@ -454,7 +470,12 @@ export function createDirector({ C, water, sound, sense }) {
       if (r.type === 'away') {
         C.look('around'); C.mood('sad');
         const back = await waitFor(['back'], 9);
-        if (back.type === 'back') { C.look('auto'); C.mood('happy', 1.2); C.bounce(1); await say(pick(['왔다!', '여기 있었네!'])); continue; }
+        if (back.type === 'back') {
+          const w = await checkWho();
+          if (w === 'same' || w === 'skip') { C.look('auto'); C.mood('happy', 1.2); C.bounce(1); await say(pick(['왔다!', '여기 있었네!'])); }
+          nextTalk = T + 8;
+          continue;
+        }
         await sleep();
         nextTalk = T + 8;
         continue;
@@ -486,7 +507,7 @@ export function createDirector({ C, water, sound, sense }) {
   /* ───────── 대화 ───────── */
   function ctx() {
     const h = new Date().getHours();
-    return { hour: h, days: days0, meal: h < 10 ? '아침' : h < 15 ? '점심' : h < 21 ? '저녁' : '야식', mem: load() || {}, name, n: tapCount, lastWasMuse };
+    return { hour: h, days: days0, meal: h < 10 ? '아침' : h < 15 ? '점심' : h < 21 ? '저녁' : '야식', mem: memNow(), name, n: tapCount, lastWasMuse, friend: person?.callName || null };
   }
   async function speak(rep, c) {
     for (const l of rep) {
@@ -536,7 +557,7 @@ export function createDirector({ C, water, sound, sense }) {
       choice: { one: 0, peace: 1, three: 2 },
     }[topic.type] || {};
     for (;;) {
-      const r = await waitFor(['gesture', 'text'], Math.max(0.1, end - T));
+      const r = await waitAnswer(['gesture', 'text'], Math.max(0.1, end - T));
       if (r.type === 'timeout') return { kind: null };
       if (r.type === 'gesture') {
         if (!(r.name in G)) continue;
@@ -618,19 +639,252 @@ export function createDirector({ C, water, sound, sense }) {
     sound.ambient(0.7, 0.5, 3);
     C.open(1, 3); C.mood('surprised', 0.6);
     await wait(0.6);
-    C.mood('happy'); C.bounce(1);
-    await say('응? 왔어?');
-    if (name) await say(`${name}, 여기 있어!`);
+    C.mood('curious');
+    const w = await checkWho();   // 깨워 준 사람이 누구인지
+    if (w === 'same' || w === 'skip') {
+      C.mood('happy'); C.bounce(1);
+      await say(person?.callName ? `응? ${person.callName}, 왔어?` : '응? 왔어?');
+      if (name) await say(`${name}, 여기 있어!`);
+    }
     C.mood('smile'); C.look('auto');
     return r;
   }
 
   /* ───────── 저장 ───────── */
   function load() { try { return JSON.parse(localStorage.getItem(STORE) || 'null'); } catch { return null; } }
-  function remember(v) {
+  function rememberCreature(v) { // 아이 자신에 대한 것 (이름, 색)
     if (!v) return;
     try { localStorage.setItem(STORE, JSON.stringify({ ...(load() || {}), ...v })); } catch { /* 저장 불가 환경 */ }
   }
+  function remember(v) { // 지금 마주한 사람과의 기억
+    if (!v) return;
+    if (person && faces) faces.patch(person.id, (p) => Object.assign(p.mem, v));
+    else if (!anon) rememberCreature(v);   // 카메라 없이 노는 경우: 예전처럼 하나의 기억
+  }
+  function memNow() {
+    if (person && faces) return faces.get(person.id)?.mem || {};
+    return anon ? {} : load() || {};
+  }
+  /* ───────── 얼굴로 알아보기: 경로 분기 ─────────
+   *  known    → 저장된 친구와 일치: "아! ○○! 기억나!" + 그 사람과의 기억으로 대화
+   *  unsure   → 애매함: "혹시… 전에 만난 적 있어?" → 응: 그 친구로 / 아니: 처음 보는 사람으로
+   *  stranger → 목록에 없음: "처음 보는 얼굴인데?" → 누구야? → 친구 할래? → 얼굴 기억해도 돼?
+   *  noface   → 얼굴이 안 보임: 한 번 더 부탁 → 그래도 안 되면 이름 없이 반가워함
+   */
+  async function recognize(timeout = 8) {
+    if (!faces || !sense.cam) return { status: 'nocam', samples: [] };
+    const ok = await Promise.race([faces.load(), new Promise((r) => setTimeout(() => r(false), 15000))]);
+    if (!ok) return { status: 'nocam', samples: [] };
+    return faces.identify(await faces.collect(5, timeout));
+  }
+
+  async function meetAgain() {
+    // 가까이 들여다보며 누군지 살핀다
+    C.look('viewer'); C.mood('thinking'); C.tiltTo(0.12);
+    await say('…', { keep: true });
+    let R = await (recogP || recognize(8));
+    recogP = null;
+    if (R.status === 'noface') {
+      C.mood('curious');
+      await say('얼굴이… 잘 안 보여.', { keep: true });
+      C.caption('hint', '카메라를 바라봐 주세요');
+      R = await recognize(8);
+      C.clearKind('hint');
+    }
+    C.tiltTo(0);
+    const friends = faces ? faces.list() : [];
+    // 얼굴 기억 기능 이전부터 만나던 친구 (목록이 비어 있고 지난 방문 기록만 있음)
+    if (R.status === 'stranger' && !friends.length && load()?.visits) R = { ...R, status: 'unsure', legacy: true };
+
+    if (R.status === 'known') return known(R);
+    if (R.status === 'unsure') {
+      C.mood('curious'); C.tiltTo(0.1);
+      const q = R.legacy ? '…어? 너, 본 적 있는 것 같은데… 맞아?'
+        : R.person?.callName ? `혹시… ${R.person.callName}?` : '혹시… 우리 전에 만난 적 있어?';
+      const a = await askYesNo(q);
+      C.tiltTo(0);
+      if (a === 'yes' || a === 'maybe') {
+        if (R.legacy) {
+          const p = faces.enroll(R.samples, { mem: stripCreature(load()) });
+          return known({ ...R, person: p }, true);
+        }
+        return known(R);
+      }
+      return stranger(R, a === 'no');
+    }
+    if (R.status === 'stranger') return stranger(R);
+    // 얼굴을 끝내 못 봤거나 카메라가 없음 → 예전처럼 이름 없이
+    C.mood('happy'); C.bounce(1); sound.chime();
+    await say(`나야, ${name}!`);
+    await say('다시 와 줬구나.');
+    remember({ lastVisit: dayStr(), visits: (load()?.visits || 0) + 1 });
+    return 'anon';
+  }
+
+  async function known(R, migrated = false) {
+    person = R.person;
+    const before = faces.get(person.id);
+    days0 = daysSince(before?.mem?.lastVisit);
+    faces.learn(person.id, R.samples);
+    faces.patch(person.id, (p) => { p.visits = (p.visits || 0) + (migrated ? 0 : 1); p.lastSeen = Date.now(); p.mem.lastVisit = dayStr(); });
+    C.mood('surprised', 0.5); C.sparkle(0.9);
+    await say('…아!');
+    C.mood('happy'); C.bounce(1); sound.chime();
+    const call = person.callName;
+    await say(call ? `${call}!` : '너구나!');
+    await say(migrated ? '역시! 이제 얼굴도 기억해 둘게.' : `기억나! 나야, ${name}!`);
+    if (days0 === 0) await say('또 왔네! 헤헤.');
+    else if (days0 === 1) await say('어제 보고 또 보네. 반가워!');
+    else if (days0 > 1) { C.mood('shy', 2); await say(`${days0}일 만이야. 보고 싶었어.`); }
+    const h = new Date().getHours();
+    C.mood('smile'); C.sparkle(0.4);
+    await say(h >= 5 && h < 11 ? '좋은 아침!' : h >= 22 || h < 5 ? '이 시간까지 안 자? 헤헤.' : h >= 18 ? '좋은 저녁이야.' : '오늘도 와 줘서 고마워.');
+    if (!person.callName) await askCallName(person);
+    return 'known';
+  }
+
+  async function stranger(R, saidNo = false) {
+    person = null;
+    C.mood('surprised', 0.9);
+    if (!saidNo) await say('…어?');
+    C.mood('thinking'); C.tiltTo(0.15);
+    await say(saidNo ? '그럼… 처음 보는 거구나.' : '처음 보는 얼굴인데?');
+    C.look('viewer'); C.mood('curious');
+    await say('너는… 누구야?', { keep: true });
+    C.caption('hint', '⏎ 이름을 적어 주거나 · 손을 흔들어 인사해 주세요');
+    const r = await waitAnswer(['text', 'wave', 'gesture', 'tap'], 12);
+    C.clearKind('hint'); C.tiltTo(0);
+    let call = r.type === 'text' ? extractName(r.text) : null;
+    if (r.type === 'text') { C.mood('happy', 1.5); await say(call ? `${call}? 반가워!` : '그렇구나…! 반가워.'); }
+    else if (r.type === 'wave') { C.mood('happy', 1.5); C.bounce(0.6); await say('안녕! 인사해 주는 거야?'); }
+    else if (r.type === 'timeout') { C.mood('shy', 2); await say('…부끄러워? 나도 조금 부끄러워.'); }
+    else await say('헤헤, 반가워.');
+    C.mood('smile');
+    await say(`나는 ${iya(name)}.`);
+    const friends = faces ? faces.list() : [];
+    if (friends.length === 1 && friends[0].callName) await say(`${withJosa(friends[0].callName, '이랑', '랑')} 같이 이름을 찾았어.`);
+    else if (friends.length > 1) await say(`나한테는 친구가 ${friends.length}명 있어.`);
+    C.mood('shy');
+    const a = await askYesNo('너도… 내 친구 해 줄래?');
+    if (a === 'yes' || a === 'maybe') {
+      C.mood('happy'); C.bounce(1); sound.giggle();
+      await say('와아!');
+      const p = await captureFriend(call);
+      if (p) { person = p; days0 = null; return 'newfriend'; }
+      anon = true;
+      return 'friend-noface';
+    }
+    C.mood('sad');
+    await say('…알았어.');
+    C.mood('smile');
+    await say('그래도 여기서 같이 놀아도 돼.');
+    anon = true;
+    return 'stranger';
+  }
+
+  // 얼굴 저장 — 반드시 먼저 물어본다
+  async function captureFriend(call, migrate = false) {
+    if (!faces || !sense.cam) return null;
+    const a = await askYesNo('그럼… 네 얼굴, 기억해도 돼?');
+    if (a !== 'yes' && a !== 'maybe') { C.mood('smile'); await say('알았어. 대신 마음으로 기억할게.'); return null; }
+    if (!(await Promise.race([faces.load(), new Promise((r) => setTimeout(() => r(false), 15000))]))) {
+      await say('어… 지금은 눈이 잘 안 보여. 다음에 하자.'); return null;
+    }
+    C.look('viewer'); C.mood('wonder');
+    await say('가만히… 나를 봐 줘.', { keep: true });
+    C.caption('hint', '카메라를 바라봐 주세요');
+    let samples = await faces.collect(6, 10);
+    if (samples.length < 3) { // 한 번 더
+      C.mood('curious');
+      await say('음… 한 번만 더, 나를 똑바로 봐 줄래?', { keep: true });
+      samples = samples.concat(await faces.collect(6 - samples.length, 10));
+    }
+    C.clearKind('hint');
+    if (samples.length < 3) { C.mood('sad'); await say('얼굴이 잘 안 보여… 다음에 다시 해 보자.'); return null; }
+    // 찰칵 — 물 위에 얼굴이 잠깐 비쳤다가 가라앉는다
+    sound.shutter();
+    water.fade = 0.55; tween(water, 'fade', 0, 0.9);
+    const c = C.center;
+    for (let k = 0; k < 3; k++) later(k * 0.12, () => water.drop(c.x, c.y, 50 + k * 30, 0.06));
+    C.memento(samples.find((s) => s.thumb)?.thumb);
+    const mem = migrate ? stripCreature(load()) : {};
+    mem.lastVisit = dayStr();
+    const p = faces.enroll(samples, { callName: call || null, mem });
+    C.mood('happy'); C.bounce(1); C.sparkle(0.9); sound.chime([79, 83, 86], 0.1, 0.07);
+    await say('찰칵!');
+    await say('이제 안 잊어버릴 거야.');
+    C.sparkle(0.4);
+    if (!call) await askCallName(p);
+    return faces.get(p.id);
+  }
+
+  async function askCallName(p) {
+    C.mood('curious'); C.tiltTo(0.08);
+    await say('너는 뭐라고 부르면 돼?', { keep: true });
+    C.caption('hint', '⏎ Enter 를 눌러 이름을 적어 주세요');
+    asking = true;
+    const r = await waitAnswer(['text'], 18);
+    asking = false;
+    C.clearKind('hint'); C.tiltTo(0);
+    if (r.type === 'text') {
+      const n = extractName(r.text) || short(r.text).slice(0, 8);
+      faces.patch(p.id, (x) => { x.callName = n; });
+      if (person?.id === p.id) person.callName = n;
+      C.mood('happy'); C.bounce(0.6);
+      await say(`${n}! 예쁜 이름이다.`);
+      await say(`${withJosa(n, '아', '야')}, 꼭 기억할게.`);
+    } else {
+      C.mood('smile');
+      await say("그럼 그냥 '친구'라고 부를게.");
+    }
+  }
+
+  async function askYesNo(q) {
+    asking = true;
+    try {
+      await say(q, { keep: true });
+      C.caption('hint', HINTS.yesno + '    ·    ⏎ 직접 말하기');
+      const a = await getAnswer({ type: 'yesno' }, 15);
+      return a.kind === 'text' ? (understand(a.text).yes === false ? 'no' : 'yes') : a.kind;
+    } finally { asking = false; C.clearKind('hint'); }
+  }
+
+  // 잠깐 자리를 비웠다 돌아왔을 때 — 같은 사람인지 다시 확인
+  async function checkWho() {
+    if (!faces || !sense.cam || !faces.ready) return 'skip';
+    const R = faces.identify(await faces.collect(3, 4));
+    if (R.status === 'noface') return 'skip';
+    if (R.status === 'known' && R.person.id === person?.id) return 'same';
+    if (R.status === 'known') {
+      person = R.person; anon = false;
+      days0 = daysSince(faces.get(person.id)?.mem?.lastVisit);
+      faces.patch(person.id, (p) => { p.visits++; p.lastSeen = Date.now(); p.mem.lastVisit = dayStr(); });
+      C.mood('surprised', 0.5); C.look('viewer');
+      await say('어?');
+      C.mood('happy'); C.bounce(1); sound.chime();
+      await say(person.callName ? `${person.callName}! 너도 왔구나!` : '어, 너도 왔구나!');
+      asked.clear();
+      return 'switched';
+    }
+    if (!person && anon) return 'same'; // 이미 이름 모를 친구와 노는 중
+    C.look('viewer');
+    await say('…어? 아까 그 친구가 아니네?');
+    await stranger(R, false);
+    asked.clear();
+    return 'stranger';
+  }
+
+  const stripCreature = (m) => { const { name: _n, trait: _t, born: _b, ...rest } = m || {}; return rest; };
+  const withJosa = (w, a, b) => w + (hasBatchim(w) ? a : b);
+  function extractName(text) {
+    const t = (text || '').trim();
+    const m = t.match(/(?:나는|난|내\s?이름은|제\s?이름은|저는|전|이름은)\s*([가-힣A-Za-z]{1,8}?)(?:이야|야|이에요|예요|에요|입니다|이다|라고|이라고|요)?[.!~]*$/);
+    if (m) return m[1];
+    const s = t.replace(/(이야|야|이에요|예요|입니다|이요|요)?[.!~]*$/, '');
+    return /^[가-힣A-Za-z]{1,8}$/.test(s) ? s : null;
+  }
+
+
 
   /* ───────── 실행 ───────── */
   function paperByHour() {
@@ -659,7 +913,8 @@ export function createDirector({ C, water, sound, sense }) {
   }
   function restart({ forget = false } = {}) {
     gen++;
-    if (forget) { try { localStorage.removeItem(STORE); } catch { /* */ } }
+    if (forget) { try { localStorage.removeItem(STORE); } catch { /* */ } faces?.clear(); }
+    person = null; anon = false; recogP = null;
     for (const k in traits) traits[k] = 0;
     for (const k in flags) delete flags[k];
     teach = 1; awake = false; name = null; lastTapT = -99;
@@ -673,7 +928,7 @@ export function createDirector({ C, water, sound, sense }) {
 
   return {
     update, emit, run, restart,
-    get phase() { return phase; }, get traits() { return traits; }, get name() { return name; }, get teaching() { return teach > 1; }, get asking() { return asking; },
+    get phase() { return phase; }, get traits() { return traits; }, get name() { return name; }, get teaching() { return teach > 1; }, get asking() { return asking; }, get person() { return person; },
     ask: (id) => { const t = TOPICS.find((x) => x.id === id); return t ? ask(t) : null; }, rps: () => rps(),
   };
 }

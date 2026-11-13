@@ -16,7 +16,7 @@
 //   }
 //
 // 표정: neutral curious wonder surprised happy smile shy sleepy sad thinking squeeze
-// 줄 안의 {name} → 아이 이름, {you} → 내가 키보드로 적은 말(짧게), {n} → 오늘 물결 수
+// 줄 안의 {name} → 아이 이름, {friend} → 얼굴로 알아본 내 이름, {you} → 내가 적은 말(짧게), {n} → 오늘 물결 수
 
 /* ───────────────────────── 질문 목록 ───────────────────────── */
 export const TOPICS = [
@@ -201,6 +201,8 @@ export const TOPICS = [
   { id: 'muse4', type: 'muse', ask: ['나는 잠들면 어디로 가는 걸까…', '물 밑에는 뭐가 있을까?'] },
   { id: 'muse5', type: 'muse', when: (c) => c.hour >= 22 || c.hour < 5, ask: ['벌써 밤이네.', '오늘 하루도 정말 수고했어.'] },
   { id: 'muse6', type: 'muse', ask: ['{name}… 내 이름, 아직도 좀 신기해.', '네가 지어 준 거나 마찬가지야.'] },
+  { id: 'muse7', type: 'muse', when: (c) => !!c.friend, ask: ['{friend}.', '…헤헤, 그냥 불러 봤어.'] },
+  { id: 'muse8', type: 'muse', when: (c) => !!c.friend && c.mem.visits > 2, ask: (c) => [`{friend}, 벌써 ${c.mem.visits}번째 만나는 거야.`, '자주 와 줘서 고마워.'] },
 ];
 
 /* ───────────────────────── 대답 방법 안내 ───────────────────────── */
@@ -284,5 +286,5 @@ export function pickTopic(c, asked) {
   return (pool.length ? pool : ok)[(Math.random() * (pool.length || ok.length)) | 0];
 }
 
-export const fill = (s, c) => s.replace(/\{name\}/g, c.name || '나').replace(/\{you\}/g, c.you || '').replace(/\{n\}/g, String(c.n ?? 0));
+export const fill = (s, c) => s.replace(/\{friend\}/g, c.friend || '친구').replace(/\{name\}/g, c.name || '나').replace(/\{you\}/g, c.you || '').replace(/\{n\}/g, String(c.n ?? 0));
 export const lines = (x, c) => (typeof x === 'function' ? x(c) : x);

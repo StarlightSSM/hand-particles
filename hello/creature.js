@@ -162,6 +162,7 @@ export function createCreature(canvas, hooks = {}) {
   function draw() {
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     g.clearRect(0, 0, W, H);
+    drawMemento();
     if (st.presence > 0.003) drawFace();
     drawTexts();
   }
@@ -445,6 +446,26 @@ export function createCreature(canvas, hooks = {}) {
     }
   }
 
+  /* ───────────────────── 기억의 사진 (얼굴 저장 순간) ───────────────────── */
+  let memento = null; // { img, t0 }
+  function drawMemento() {
+    if (!memento || !memento.img.complete) return;
+    const k = st.t - memento.t0, dur = 4.2;
+    if (k > dur) { memento = null; return; }
+    const a = sstep(0, 0.5, k) * (1 - sstep(dur - 1.2, dur, k));
+    const s = E * 1.15, x = W / 2, y = Math.max(s * 0.62, H * 0.17) + (1 - a) * E * 0.15;
+    g.save();
+    g.globalAlpha = a * 0.85;
+    g.filter = `grayscale(1) contrast(1.35) brightness(1.08) blur(${((1 - sstep(0, 1.2, k)) * 6).toFixed(1)}px)`;
+    g.beginPath(); g.ellipse(x, y, s * 0.5, s * 0.5, 0, 0, TAU); g.clip();
+    g.drawImage(memento.img, x - s / 2, y - s / 2, s, s);
+    g.filter = 'none';
+    const vg = g.createRadialGradient(x, y, s * 0.25, x, y, s * 0.52); // 가장자리는 종이에 번지듯
+    vg.addColorStop(0, 'rgba(247,245,241,0)'); vg.addColorStop(1, 'rgba(247,245,241,1)');
+    g.fillStyle = vg; g.fillRect(x - s, y - s, s * 2, s * 2);
+    g.restore();
+  }
+
   /* ───────────────────── 글씨 (말풍선 없이 잉크로) ───────────────────── */
   const texts = []; // {kind, text, t0, times[], shown, holdUntil, fadeT, res}
   const FONT = {
@@ -569,8 +590,10 @@ export function createCreature(canvas, hooks = {}) {
     bounce(a = 1) { st.bounceT = st.t; st.bounceAmp = a; },
     identity(h, s, l = 0.4) { st.tHue = h; st.tSat = s; st.tLit = l; },
     sparkle(v) { st.tSparkle = v; },
+    memento(src) { if (!src) return; const img = new Image(); img.src = src; memento = { img, t0: st.t }; },
     wink(side = 1, dur = 0.7) { st.winkSide = side; st.winkUntil = st.t + dur; },
     get conv() { return st.conv; },
+    get line() { for (let i = texts.length - 1; i >= 0; i--) if (texts[i].kind === 'say') return texts[i].text; return ''; },
     reset() {
       Object.assign(st, {
         presence: 0, tPresence: 0, reveal: 0, tReveal: 0, lid: 0, tLid: 0, alive: false, blink: 0, blinkT: -1,
