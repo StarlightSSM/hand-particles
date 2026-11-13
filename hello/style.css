@@ -74,3 +74,5 @@ body.started #begin { opacity: 0; visibility: hidden; pointer-events: none; }
 #debug { position: fixed; top: 12px; right: 12px; z-index: 7; background: #fffc; border: 1px solid #0001; padding: 6px; font: 11px/1.4 ui-monospace, Consolas, monospace; color: #333; }
 #debug canvas { display: block; width: 240px; height: 135px; background: #000; }
 #debug pre { margin: 6px 0 0; white-space: pre; }
+
+body.started.choosing { cursor: default; }

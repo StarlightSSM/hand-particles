@@ -50,8 +50,15 @@ export function createSound() {
   }
 
   /* 물방울: 올라가는 기포 공명 + 낮은 몸통 + 작은 클릭 */
+  // 물방울이 몰릴 때 소리 노드가 폭증하지 않게: 0.4초 안에 6개까지, 넘치면 점점 작게/생략
+  const recentDrops = [];
   function drop(x01 = 0.5, strength = 1) {
     if (!ok()) return;
+    const now = S.ctx.currentTime;
+    while (recentDrops.length && now - recentDrops[0] > 0.4) recentDrops.shift();
+    if (recentDrops.length >= 6) return;
+    recentDrops.push(now);
+    strength *= 1 - recentDrops.length * 0.08;
     const ctx = S.ctx, t = ctx.currentTime + 0.005;
     const f0 = 480 + Math.random() * 420;
     const g = ctx.createGain(); env(g, t, 0.22 * strength, 0.004, 0.3);

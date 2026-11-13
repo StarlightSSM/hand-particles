@@ -5,16 +5,37 @@ import * as THREE from 'three';
 
 const VS = /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
+const MAX_DROPS = 16;
 const DROP_FS = /* glsl */`
-  uniform sampler2D tex; uniform vec2 center; uniform float radius, strength, aspect;
+  // 물방울 여러 개를 한 번의 패스로 (예전엔 물방울마다 전체 화면 패스 1번)
+  uniform sampler2D tex; uniform float aspect; uniform int count;
+  uniform vec4 drops[${MAX_DROPS}];   // xy 중심(uv), z 반경, w 세기
   varying vec2 vUv;
   void main(){
     vec4 info = texture2D(tex, vUv);
-    vec2 d = (vUv - center) * vec2(aspect, 1.0);
-    float drop = max(0.0, 1.0 - length(d) / radius);
-    drop = 0.5 - cos(drop * 3.14159265) * 0.5;
-    info.r += drop * strength;
+    for (int i = 0; i < ${MAX_DROPS}; i++) {
+      if (i >= count) break;
+      vec4 dr = drops[i];
+      vec2 d = (vUv - dr.xy) * vec2(aspect, 1.0);
+      float k = max(0.0, 1.0 - length(d) / dr.z);
+      info.r += (0.5 - cos(k * 3.14159265) * 0.5) * dr.w;
+    }
     gl_FragColor = info;
+  }`;
+
+// 종이 결 — 화면 크기가 바뀔 때만 한 번 그려 두고 재사용 (예전엔 매 픽셀 매 프레임 노이즈 10옥타브)
+const PAPER_FS = /* glsl */`
+  uniform float uAspect;
+  varying vec2 vUv;
+  float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+  float noise(vec2 p){
+    vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++){ v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
+  void main(){
+    vec2 q = vUv * vec2(uAspect, 1.0);
+    gl_FragColor = vec4(fbm(q * 210.0), fbm(q * 2.6 + 3.0), 0.0, 1.0);
   }`;
 
 const UPDATE_FS = /* glsl */`
@@ -33,7 +54,7 @@ const UPDATE_FS = /* glsl */`
   }`;
 
 const COMP_FS = /* glsl */`
-  uniform sampler2D uWave, uInk;
+  uniform sampler2D uWave, uInk, uPaperTex;
   uniform vec2 uDelta; uniform float uAspect, uTime, uRefract, uFade;
   uniform vec4 uTip[2];
   uniform vec3 uPaper, uInkTint;
@@ -65,9 +86,8 @@ const COMP_FS = /* glsl */`
     vec3 inkc = vec3(iR.r, iG.g, iB.b);
 
     // 종이
-    vec2 q = (vUv + o * 0.5) * vec2(uAspect, 1.0);
-    float fib = fbm(q * 210.0);
-    float blot = fbm(vUv * vec2(uAspect, 1.0) * 2.6 + 3.0);
+    float fib = texture2D(uPaperTex, vUv + o * 0.5).r;
+    float blot = texture2D(uPaperTex, vUv).g;
     vec3 paper = uPaper * (0.986 + 0.018 * fib) * (0.993 + 0.012 * blot);
 
     // 잉크 구름 (깨어날 때 물속에 번지는 먹) — 도메인 워프로 먹물 가닥
@@ -133,8 +153,13 @@ export function createWater(renderer, inkCanvas) {
 
   const dropMat = new THREE.ShaderMaterial({
     vertexShader: VS, fragmentShader: DROP_FS,
-    uniforms: { tex: { value: null }, center: { value: new THREE.Vector2() }, radius: { value: 0.03 }, strength: { value: 0.05 }, aspect: { value: 1 } },
+    uniforms: {
+      tex: { value: null }, aspect: { value: 1 }, count: { value: 0 },
+      drops: { value: Array.from({ length: MAX_DROPS }, () => new THREE.Vector4()) },
+    },
   });
+  const paperMat = new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: PAPER_FS, uniforms: { uAspect: { value: 1 } } });
+  let paperRT = null;
   const updMat = new THREE.ShaderMaterial({
     vertexShader: VS, fragmentShader: UPDATE_FS,
     uniforms: { tex: { value: null }, delta: { value: new THREE.Vector2() }, damping: { value: 0.994 } },
@@ -147,7 +172,7 @@ export function createWater(renderer, inkCanvas) {
   const compMat = new THREE.ShaderMaterial({
     vertexShader: VS, fragmentShader: COMP_FS,
     uniforms: {
-      uWave: { value: null }, uInk: { value: inkTex },
+      uWave: { value: null }, uInk: { value: inkTex }, uPaperTex: { value: null },
       uDelta: { value: new THREE.Vector2() }, uAspect: { value: 1 }, uTime: { value: 0 },
       uRefract: { value: 0.045 }, uFade: { value: 0 },
       uTip: { value: [new THREE.Vector4(), new THREE.Vector4()] },
@@ -176,6 +201,24 @@ export function createWater(renderer, inkCanvas) {
     compMat.uniforms.uDelta.value.copy(d);
     compMat.uniforms.uAspect.value = aspect;
     dropMat.uniforms.aspect.value = aspect;
+    // 셰이더 예열: 첫 톡 순간에 컴파일하느라 멈추지 않도록 미리 한 번씩 돌려 둠 (물방울 0개라 결과는 그대로)
+    dropMat.uniforms.count.value = 0; dropMat.uniforms.tex.value = A.texture; pass(dropMat, B);
+    updMat.uniforms.tex.value = A.texture; pass(updMat, B);
+    clear();
+    resizePaper();
+  }
+  // 종이 결 텍스처 (화면 해상도) — 해상도만 바뀔 때는 이것만 다시 (물결은 유지)
+  function resizePaper() {
+    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    paperRT?.dispose();
+    paperRT = new THREE.WebGLRenderTarget(size.x, size.y, {
+      type: THREE.UnsignedByteType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
+    });
+    paperMat.uniforms.uAspect.value = aspect;
+    pass(paperMat, paperRT);
+    renderer.setRenderTarget(null);
+    compMat.uniforms.uPaperTex.value = paperRT.texture;
   }
   function clear() {
     const prev = renderer.getClearColor(new THREE.Color()), pa = renderer.getClearAlpha();
@@ -191,24 +234,31 @@ export function createWater(renderer, inkCanvas) {
   }
 
   function step(dt) {
-    acc = Math.min(acc + dt, 0.1);
-    const STEP = 1 / 100;
-    while (acc >= STEP) {
-      while (drops.length) {
-        const d = drops.shift();
-        dropMat.uniforms.tex.value = A.texture;
-        dropMat.uniforms.center.value.set(d.x, d.y);
-        dropMat.uniforms.radius.value = d.r;
-        dropMat.uniforms.strength.value = d.s;
-        pass(dropMat, B); swap();
-      }
+    const STEP = 1 / 100, MAX_STEPS = 4;
+    acc += dt;
+    let n = 0;
+    if (drops.length) {
+      // 한 프레임에 쌓인 물방울은 최대 16개까지 한 번에 (넘치면 가장 최근 것 위주)
+      const batch = drops.splice(0, drops.length).slice(-MAX_DROPS);
+      const u = dropMat.uniforms;
+      batch.forEach((d, i) => u.drops.value[i].set(d.x, d.y, d.r, d.s));
+      u.count.value = batch.length;
+      u.tex.value = A.texture;
+      pass(dropMat, B); swap();
+    }
+    while (acc >= STEP && n < MAX_STEPS) {
       updMat.uniforms.tex.value = A.texture;
       pass(updMat, B); swap();
-      acc -= STEP;
+      acc -= STEP; n++;
     }
+    if (acc > STEP) acc = 0; // 밀린 시간은 버림 (물결이 아주 살짝 느려질 뿐, 화면은 매끄럽게)
   }
 
+  let inkW = 0, inkH = 0;
   function render(t, tips) {
+    // 잉크 캔버스 크기가 바뀌면 GPU 텍스처를 새로 만든다.
+    // (WebGL2에서 three.js는 텍스처 크기를 처음 크기로 고정해 두어, 작아진 그림이 구석에만 그려져 아이가 점점 작아졌다)
+    if (inkCanvas.width !== inkW || inkCanvas.height !== inkH) { inkTex.dispose(); inkW = inkCanvas.width; inkH = inkCanvas.height; }
     inkTex.needsUpdate = true;
     const u = compMat.uniforms;
     u.uWave.value = A.texture;
@@ -230,7 +280,7 @@ export function createWater(renderer, inkCanvas) {
 
   const uni = compMat.uniforms;
   return {
-    resize, step, render, drop, clear,
+    resize, resizePaper, step, render, drop, clear,
     set damping(v) { updMat.uniforms.damping.value = v; },
     get damping() { return updMat.uniforms.damping.value; },
     cloud: uni.uCloud.value, // x, y(uv), z 반경, w 농도 — director가 트윈
