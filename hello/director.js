@@ -8,6 +8,8 @@
 //  4 이름   : 아이가 처음으로 스스로 물결을 만들고, 자기 이름을 찾는다
 //  5 함께   : 자유롭게 논다. 오래 떠나 있으면 잠들고, 돌아오면 깨어난다 (이름은 다음에도 기억)
 
+import { TOPICS, pickTopic, hintFor, HINTS, understand, freeReply, short, fill, lines as linesOf } from './talk.js';
+
 const TRAITS = {
   warm:  { hue: 352, sat: 0.62, lit: 0.5,  name: '토독', why: '네가 톡, 톡 두드려 줬잖아. 그 소리가 나야.' },
   play:  { hue: 178, sat: 0.55, lit: 0.42, name: '살랑', why: '네가 흔들어 준 물결… 그게 나야.' },
@@ -18,6 +20,29 @@ const hasBatchim = (w) => { const c = w.charCodeAt(w.length - 1) - 0xac00; retur
 const iya = (w) => w + (hasBatchim(w) ? '이야' : '야');
 const pick = (a) => a[(Math.random() * a.length) | 0];
 const STORE = 'hello-stranger.v1';
+const dayStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const daysSince = (s) => (s ? Math.round((new Date(dayStr()) - new Date(s)) / 86400000) : null);
+const RPS_ICON = { rock: '✊', scissors: '✌', paper: '✋' };
+const BEATS = { rock: 'scissors', scissors: 'paper', paper: 'rock' };
+const GEST_RPS = { fist: 'rock', peace: 'scissors', open: 'paper' };
+
+// 이야기 밖에서도 언제든 나오는 반응 대사 — [문장, 표정]
+const REACT = {
+  tap: [['히히', 'happy'], ['또 해 줘!', 'smile'], ['톡!', 'happy'], ['간지러워~', 'shy']],
+  wave: [['안녕, 안녕!', 'happy'], ['나도 흔들흔들~', 'happy']],
+  close: [['너무 가까워…!', 'shy'], ['코, 코가 보여…!', 'surprised']],
+  gazeHold: [['…헤헤.', 'shy'], ['뭘 그렇게 봐?', 'smile'], ['내 얼굴에 뭐 묻었어?', 'curious']],
+  twoHands: [['와, 두 손!', 'surprised']],
+  pet: [['기분 좋아…', 'happy'], ['헤헤, 쓰담쓰담.', 'happy'], ['더… 더 해 줘…', 'shy']],
+  tickle: [['히히히, 그만~!', 'squeeze'], ['간지러워, 간지러워!', 'happy']],
+  highfive: [['하이파이브!', 'happy'], ['짝!', 'happy']],
+  hide: [['어? 어디 갔지?', 'curious']],
+  peekaboo: [['까꿍! 찾았다!', 'happy'], ['으앗, 깜짝이야!', 'surprised'], ['히히, 또 해 줘!', 'happy']],
+  'g:thumbsUp': [['칭찬이야? 헤헤.', 'shy'], ['나도 최고!', 'happy']],
+  'g:thumbsDown': [['힝… 뭐가 별로야?', 'sad']],
+  'g:peace': [['브이!', 'happy'], ['찰칵! 사진 찍는 거야?', 'surprised']],
+  cross: [['으으, 눈이 몰려…', 'surprised']],
+};
 
 export function createDirector({ C, water, sound, sense }) {
   let T = 0, gen = 0;
@@ -27,6 +52,8 @@ export function createDirector({ C, water, sound, sense }) {
   const flags = {};
   let teach = 1;              // 3막에서 가르침 가중치 ↑
   let lastTapT = -99, lastLineT = -99, awake = false, phase = 'surface', name = null;
+  let asking = false, tapCount = 0, days0 = null, lastWasMuse = false, petT = 0;
+  const asked = new Set(), nearTaps = [];
   const cancel = () => { throw 'cancel'; };
 
   /* ───────── 코루틴 도구 ───────── */
@@ -58,10 +85,19 @@ export function createDirector({ C, water, sound, sense }) {
       sound.drop(d.x / innerWidth, d.kind === 'dwell' ? 0.7 : 1);
       // 튀어 오른 물방울이 다시 떨어지는 2차 낙수
       later(0.34, () => { water.drop(d.x + (Math.random() - 0.5) * 6, d.y, 14, 0.05); sound.drop(d.x / innerWidth, 0.35); });
+      tapCount++;
       if (!awake) return;
+      if (near && d.gesture === 'open' && d.kind === 'jab' && !asking) { // 손바닥으로 앞으로 → 하이파이브
+        C.mood('happy', 1.4); C.bounce(1.2); C.sparkle(0.8); later(1.2, () => C.sparkle(0));
+        sound.chime([79, 86], 0.06, 0.06); water.drop(d.x, d.y, 60, 0.12);
+        emit('highfive', d); return;
+      }
       if (near) {
         C.mood('squeeze', 0.55); sound.flinch(); C.bounce(0.6);
         traits.warm += 1.0 * teach;
+        nearTaps.push(T);
+        while (nearTaps.length && T - nearTaps[0] > 2.5) nearTaps.shift();
+        if (nearTaps.length >= 4) { nearTaps.length = 0; sound.giggle(); emit('tickle'); }
       } else {
         C.glance({ x: d.x, y: d.y }, 0.9);
         traits.warm += 0.35 * teach;
@@ -70,6 +106,20 @@ export function createDirector({ C, water, sound, sense }) {
     if (type === 'wave' && awake) { traits.play += 1.2 * teach; C.bounce(0.5); }
     if (type === 'still' && awake) traits.calm += 1.2 * teach;
     if (type === 'gazeHold' && awake && teach > 1) traits.gaze += 1.2; // 수동적인 행동: 3막에서만, 배수 없이
+    if (type === 'text') { // 내가 적은 말이 물 위에 떨어진다
+      C.caption('you', `“${d.text}”`, { hold: 2.4 });
+      water.drop(innerWidth / 2, innerHeight * 0.79, 30, 0.05); sound.drop(0.5, 0.5);
+      if (awake && !asking) { const u = understand(d.text); C.mood(u.sent === 'bad' ? 'sad' : u.sent === 'good' ? 'happy' : 'curious', 1.2); }
+    }
+    if (!awake) return;
+    if (type === 'pet') { C.mood('happy', 2.2); sound.purr(); }
+    if (type === 'hide') { C.look('around'); later(2.5, () => C.st.attn === 'around' && C.look('auto')); }
+    if (type === 'peekaboo') { C.look('viewer'); C.mood('surprised', 0.5); later(0.5, () => { C.mood('happy', 1.5); sound.giggle(); C.bounce(1); }); later(2.2, () => C.look('auto')); }
+    if (type === 'gesture' && !asking) {
+      if (d.name === 'thumbsUp') { C.mood('happy', 1.2); C.sparkle(0.7); later(1.4, () => C.sparkle(0)); }
+      if (d.name === 'thumbsDown') C.mood('sad', 1.4);
+      if (d.name === 'peace') { C.wink(Math.random() < 0.5 ? -1 : 1, 0.8); C.bounce(0.5); }
+    }
   }
 
   /* ───────── 매 프레임 ───────── */
@@ -113,6 +163,12 @@ export function createDirector({ C, water, sound, sense }) {
       if (sense.face && sense.face.size < 0.3) flags.closeSent = false;
       if (sense.motion > 0.12 && sense.tips.length && !flags.moveSent) { flags.moveSent = true; emit('move'); }
       if (sense.motion < 0.02) flags.moveSent = false;
+      // 쓰다듬기: 아이 근처를 톡 없이 천천히 쓸어 줄 때
+      const tip = sense.tips[0];
+      const stroking = tip && C.near(tip.x, tip.y, 2.4) && sense.motion > 0.012 && sense.motion < 0.3 && T - lastTapT > 1;
+      petT = stroking ? petT + dt : Math.max(0, petT - dt * 2);
+      if (petT > 1.5 && T - (flags.petT ?? -99) > 9) { flags.petT = T; petT = 0; emit('pet'); }
+      if (C.conv > 0.75 && T - (flags.crossT ?? -99) > 15) { flags.crossT = T; emit('cross'); }
       if (sense.away > 7 && !flags.awaySent) { flags.awaySent = true; emit('away'); }
       if (sense.away < 0.5 && flags.awaySent) { flags.awaySent = false; emit('back'); }
     }
@@ -199,6 +255,7 @@ export function createDirector({ C, water, sound, sense }) {
     C.look('auto');
 
     const mem = load();
+    remember({ lastVisit: dayStr(), visits: (mem?.visits || 0) + 1 });
     if (mem?.name) {
       await wait(0.8);
       C.mood('thinking');
@@ -209,8 +266,13 @@ export function createDirector({ C, water, sound, sense }) {
       C.identity(tr.hue, tr.sat, tr.lit); C.sparkle(0.8);
       C.mood('happy'); C.bounce(1); sound.chime();
       await say(`나야, ${name}!`);
-      await say('다시 와 줬구나.');
+      if (days0 === 0) await say('또 왔네! 헤헤.');
+      else if (days0 === 1) await say('어제 보고 또 보네. 반가워!');
+      else if (days0 > 1) { C.mood('shy', 2); await say(`${days0}일 만이야. 보고 싶었어.`); }
+      else await say('다시 와 줬구나.');
+      const h = new Date().getHours();
       C.mood('smile');
+      await say(h >= 5 && h < 11 ? '좋은 아침!' : h >= 22 || h < 5 ? '이 시간까지 안 자? 헤헤.' : h >= 18 ? '좋은 저녁이야.' : '오늘도 와 줘서 고마워.');
       return 'remembered';
     }
     const r = await waitFor(['tap', 'wave', 'move', 'handIn'], 7);
@@ -250,6 +312,14 @@ export function createDirector({ C, water, sound, sense }) {
       twoHands: async () => { C.mood('surprised', 0.8); await say('손이 두 개나!'); },
       close: async () => { C.mood('shy', 2.5); await say('우와… 가까워.'); },
       gazeHold: async () => { C.mood('shy', 2); await say('…계속 보고 있네.'); },
+      text: async () => { C.mood('wonder', 2); await say('말…! 너는 말을 할 줄 아는구나!'); },
+      peekaboo: async () => { await wait(0.6); await say('어디 갔다가… 나타났다! 그거 재밌다!'); },
+      pet: async () => { await say('따뜻해… 이게 뭐야?'); },
+      tickle: async () => { await say('히히히, 그만~!'); },
+      gesture: async (d) => {
+        if (d.name === 'thumbsUp') { await say('그 손 모양… 좋다는 뜻이야?'); }
+        else if (d.name === 'peace') { await say('손가락 두 개! 나도 눈 두 개!'); }
+      },
       away: async () => {
         C.look('around'); C.mood('sad');
         await say('…어디 갔어?');
@@ -263,8 +333,10 @@ export function createDirector({ C, water, sound, sense }) {
     while (count < 4 && T - start < 48) {
       const r = await waitFor(Object.keys(lines), 14);
       if (r.type === 'timeout') { if (T - start > 30) break; continue; }
-      if (seen.has(r.type) && r.type !== 'away' && r.type !== 'tap') continue;
-      seen.add(r.type);
+      const key = r.type === 'gesture' ? `g:${r.name}` : r.type;
+      if (r.type === 'gesture' && !['thumbsUp', 'peace'].includes(r.name)) continue;
+      if (seen.has(key) && r.type !== 'away' && r.type !== 'tap') continue;
+      seen.add(key);
       await lines[r.type](r);
       count++;
       await wait(1.2);
@@ -357,7 +429,7 @@ export function createDirector({ C, water, sound, sense }) {
     C.mood('happy'); C.bounce(0.8); sound.giggle();
     await say('고마워.', { hold: 1.8 });
     C.mood('smile'); C.tiltTo(0); C.sparkle(0.6);
-    save({ name, trait: key });
+    remember({ name, trait: key });
     sound.ambient(0.75, 0.55, 6);
     C.caption('title', 'hello, stranger', { hold: 7 });
     C.caption('sub', `— ${name}`, { hold: 7, y: innerHeight * 0.86 });
@@ -367,38 +439,171 @@ export function createDirector({ C, water, sound, sense }) {
   async function act5() {
     phase = 'together';
     C.look('auto');
-    const pool = {
-      tap: [['히히', 'happy'], ['또 해 줘!', 'smile'], ['톡!', 'happy'], ['간지러워~', 'shy']],
-      wave: [['안녕, 안녕!', 'happy'], ['나도 흔들흔들~', 'happy']],
-      close: [['너무 가까워…!', 'shy']],
-      gazeHold: [['…헤헤.', 'shy'], ['뭘 그렇게 봐?', 'smile']],
-      twoHands: [['와, 두 손!', 'surprised']],
-    };
+    let nextTalk = T + 7;
+    const cool = {};
+    const types = [...Object.keys(REACT).filter((k) => !k.startsWith('g:')), 'gesture', 'text', 'away'];
     for (;;) {
-      const r = await waitFor([...Object.keys(pool), 'away'], 9);
+      const r = await waitFor(types, Math.max(0.3, Math.min(9, nextTalk - T)));
+      if (r.type === 'timeout') {
+        if (T >= nextTalk) {
+          if (sense.away < 3) { const tp = pickTopic(ctx(), asked); if (tp) await ask(tp); else asked.clear(); }
+          nextTalk = T + 18 + Math.random() * 18;
+        } else idleBit();
+        continue;
+      }
       if (r.type === 'away') {
         C.look('around'); C.mood('sad');
         const back = await waitFor(['back'], 9);
         if (back.type === 'back') { C.look('auto'); C.mood('happy', 1.2); C.bounce(1); await say(pick(['왔다!', '여기 있었네!'])); continue; }
         await sleep();
+        nextTalk = T + 8;
         continue;
       }
-      if (r.type === 'timeout') {
-        // 가끔 스스로 물결을 만들며 논다
-        if (Math.random() < 0.5) {
-          const c = C.center;
-          water.drop(c.x + (Math.random() - 0.5) * C.E * 6, c.y + C.E * (1 + Math.random()), 18, 0.04);
-          C.glance({ x: c.x, y: c.y + C.E * 2 }, 0.8);
-          C.mood('smile', 1.5);
-        } else C.blink(true);
-        continue;
-      }
-      if (T - lastLineT < 4) continue;
+      if (r.type === 'text') { await chat(r.text); nextTalk = Math.max(nextTalk, T + 12); continue; }
+      const key = r.type === 'gesture' ? `g:${r.name}` : r.type;
+      if (!REACT[key]) continue;
+      if (T - (cool[key] ?? -99) < 8 || T - lastLineT < 3) continue;
       if (r.type === 'tap' && !C.near(r.x, r.y) && Math.random() < 0.6) continue;
-      const [line, mood] = pick(pool[r.type]);
-      C.mood(mood, 1.5);
+      cool[key] = T;
+      const [line, mood] = pick(REACT[key]);
+      C.mood(mood, 1.6);
       await say(line);
     }
+  }
+
+  // 가끔 혼자 노는 모습
+  function idleBit() {
+    const k = Math.random();
+    const c = C.center;
+    if (k < 0.4) {
+      water.drop(c.x + (Math.random() - 0.5) * C.E * 6, c.y + C.E * (1 + Math.random()), 18, 0.04);
+      C.glance({ x: c.x, y: c.y + C.E * 2 }, 0.8); C.mood('smile', 1.5);
+    } else if (k < 0.7) C.blink(true);
+    else if (k < 0.85) { C.tiltTo((Math.random() - 0.5) * 0.25); later(1.6, () => C.tiltTo(0)); }
+    else C.wink(Math.random() < 0.5 ? -1 : 1, 0.5);
+  }
+
+  /* ───────── 대화 ───────── */
+  function ctx() {
+    const h = new Date().getHours();
+    return { hour: h, days: days0, meal: h < 10 ? '아침' : h < 15 ? '점심' : h < 21 ? '저녁' : '야식', mem: load() || {}, name, n: tapCount, lastWasMuse };
+  }
+  async function speak(rep, c) {
+    for (const l of rep) {
+      const [text, mood] = Array.isArray(l) ? l : [l, null];
+      if (mood) { C.mood(mood, 3); if (mood === 'happy') C.bounce(0.5); }
+      await say(fill(text, c));
+    }
+  }
+  async function ask(topic) {
+    const c = ctx();
+    asked.add(topic.id);
+    C.look('viewer');
+    if (topic.type === 'muse') { // 혼잣말: 배열이면 차례대로
+      let L = linesOf(topic.ask, c); if (!Array.isArray(L)) L = [L];
+      C.mood(topic.mood || 'thinking');
+      for (const l of L) await say(fill(l, c));
+      lastWasMuse = true; C.mood('smile'); C.look('auto');
+      return;
+    }
+    lastWasMuse = false;
+    let q = linesOf(topic.ask, c); if (Array.isArray(q)) q = pick(q);
+    C.mood(topic.mood || 'curious'); C.tiltTo(0.09);
+    asking = true;
+    try {
+      await say(fill(q, c), { keep: true });   // 질문은 대답할 때까지 남겨 둠
+      C.caption('hint', hintFor(topic));
+      const ans = await getAnswer(topic, 16);
+      C.clearKind('hint'); C.tiltTo(0);
+      const c2 = { ...c, you: ans.text ? short(ans.text) : '' };
+      const rep = topic.reply[ans.kind]
+        ?? (ans.text ? topic.reply.text : null)
+        ?? (ans.kind === null ? topic.reply.none ?? [['…대답하기 어려우면 괜찮아.', 'smile']] : null)
+        ?? [['그렇구나.', 'smile']];
+      await speak(rep, c2);
+      if (topic.remember && ans.kind !== null) remember(topic.remember(ans, c2));
+      if (topic.then?.[ans.kind] === 'rps') await rps();
+    } finally {
+      asking = false; C.clearKind('hint'); C.look('auto');
+    }
+  }
+  // 손 모양 또는 키보드로 들어온 대답을 질문 종류에 맞게 해석
+  async function getAnswer(topic, timeout) {
+    const end = T + timeout;
+    const G = {
+      mood: { thumbsUp: 'good', open: 'soso', thumbsDown: 'bad' },
+      yesno: { thumbsUp: 'yes', thumbsDown: 'no', open: 'maybe' },
+      choice: { one: 0, peace: 1, three: 2 },
+    }[topic.type] || {};
+    for (;;) {
+      const r = await waitFor(['gesture', 'text'], Math.max(0.1, end - T));
+      if (r.type === 'timeout') return { kind: null };
+      if (r.type === 'gesture') {
+        if (!(r.name in G)) continue;
+        // 톡 하려고 검지를 편 것 / 그냥 손바닥을 편 것과 구분: 손 모양을 잠깐 유지해야 대답으로 인정
+        if (sense.cam) {
+          await wait(0.4);
+          if (sense.gesture !== r.name || sense.motion > 0.06) continue;
+        }
+        C.bounce(0.3);
+        return { kind: G[r.name], gesture: r.name };
+      }
+      const u = understand(r.text);
+      if (topic.type === 'mood') return { kind: u.sent ?? 'text', text: r.text, sent: u.sent };
+      if (topic.type === 'yesno') return { kind: u.yes === true ? 'yes' : u.yes === false ? 'no' : 'text', text: r.text };
+      if (topic.type === 'choice') {
+        const i = topic.options.findIndex((o) => o.words.test(r.text));
+        return { kind: i >= 0 ? i : 'text', text: r.text };
+      }
+      return { kind: 'text', text: r.text };
+    }
+  }
+  // 질문 중이 아닐 때 그냥 말을 걸면
+  async function chat(text) {
+    asking = true;
+    try {
+      C.look('viewer');
+      const { lines, then } = freeReply(text);
+      await wait(0.5);
+      await speak(lines, { ...ctx(), you: short(text) });
+      if (then === 'rps') await rps();
+    } finally { asking = false; C.look('auto'); }
+  }
+
+  /* ───────── 가위바위보 ───────── */
+  async function rps() {
+    asking = true;
+    try {
+      for (let round = 0; round < 3; round++) {
+        C.look('viewer'); C.mood('happy', 1);
+        C.caption('hint', '✊ 바위    ✌ 가위    ✋ 보    ·    ⏎ 직접 적기');
+        await say('가위…', { hold: 0.12, speed: 1.3 });
+        await say('바위…', { hold: 0.12, speed: 1.3 });
+        await say('보!', { hold: 0.45 });
+        const mine = pick(Object.keys(BEATS));
+        let yours = GEST_RPS[sense.gesture] || null;
+        if (!yours) {
+          const r = await waitFor(['gesture', 'text'], 1.8);
+          if (r.type === 'gesture') yours = GEST_RPS[r.name] || null;
+          else if (r.type === 'text') yours = understand(r.text).rps;
+        }
+        C.clearKind('hint');
+        if (!yours) { C.mood('sad', 2); await say('어? 손을 안 냈잖아~'); }
+        else {
+          await say(`나는 ${RPS_ICON[mine]}!`, { hold: 0.9 });
+          if (mine === yours) { C.mood('surprised', 1.5); await say('비겼다! 우리 마음이 통했나 봐.'); }
+          else if (BEATS[mine] === yours) { C.mood('happy', 2); C.bounce(1); sound.giggle(); await say(pick(['이겼다! 히히.', '내가 이겼지롱~'])); }
+          else { C.mood('sad', 1.6); await say(pick(['졌다… 너 잘한다!', '으앙, 한 번만 봐주지…'])); }
+        }
+        if (round === 2) { C.mood('smile'); await say('재밌었다! 다음에 또 하자.'); break; }
+        C.mood('curious');
+        await say('한 판 더?', { keep: true });
+        C.caption('hint', HINTS.yesno + '    ·    ⏎ 직접 말하기');
+        const a = await getAnswer({ type: 'yesno' }, 9);
+        C.clearKind('hint');
+        if (a.kind !== 'yes' && a.kind !== 'maybe') { C.mood('smile'); await say('재밌었다! 다음에 또 하자.'); break; }
+      }
+    } finally { asking = false; C.clearKind('hint'); }
   }
 
   async function sleep() {
@@ -422,11 +627,23 @@ export function createDirector({ C, water, sound, sense }) {
 
   /* ───────── 저장 ───────── */
   function load() { try { return JSON.parse(localStorage.getItem(STORE) || 'null'); } catch { return null; } }
-  function save(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch { /* 저장 불가 환경 */ } }
+  function remember(v) {
+    if (!v) return;
+    try { localStorage.setItem(STORE, JSON.stringify({ ...(load() || {}), ...v })); } catch { /* 저장 불가 환경 */ }
+  }
 
   /* ───────── 실행 ───────── */
+  function paperByHour() {
+    const h = new Date().getHours();
+    if (h >= 21 || h < 5) water.setPaper(0.925, 0.928, 0.945);       // 밤: 살짝 푸르고 어둡게
+    else if (h >= 17) water.setPaper(0.972, 0.952, 0.925);            // 저녁: 따뜻하게
+    else if (h < 8) water.setPaper(0.962, 0.962, 0.958);              // 새벽: 맑게
+    else water.setPaper(0.968, 0.962, 0.948);
+  }
   async function run() {
     myGen = gen;
+    days0 = daysSince(load()?.lastVisit);
+    paperByHour();
     try {
       await act0();
       const first = await act1();
@@ -446,6 +663,7 @@ export function createDirector({ C, water, sound, sense }) {
     for (const k in traits) traits[k] = 0;
     for (const k in flags) delete flags[k];
     teach = 1; awake = false; name = null; lastTapT = -99;
+    asking = false; tapCount = 0; lastWasMuse = false; asked.clear();
     water.clear(); water.cloud.w = 0;
     sound.setVoice(0);
     C.reset();
@@ -455,6 +673,7 @@ export function createDirector({ C, water, sound, sense }) {
 
   return {
     update, emit, run, restart,
-    get phase() { return phase; }, get traits() { return traits; }, get name() { return name; }, get teaching() { return teach > 1; },
+    get phase() { return phase; }, get traits() { return traits; }, get name() { return name; }, get teaching() { return teach > 1; }, get asking() { return asking; },
+    ask: (id) => { const t = TOPICS.find((x) => x.id === id); return t ? ask(t) : null; }, rps: () => rps(),
   };
 }

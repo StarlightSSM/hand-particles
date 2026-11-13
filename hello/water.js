@@ -236,5 +236,6 @@ export function createWater(renderer, inkCanvas) {
     cloud: uni.uCloud.value, // x, y(uv), z 반경, w 농도 — director가 트윈
     get fade() { return uni.uFade.value; }, set fade(v) { uni.uFade.value = v; },
     setInkTint(r, g, b) { uni.uInkTint.value.set(r, g, b); },
+    setPaper(r, g, b) { uni.uPaper.value.set(r, g, b); },
   };
 }

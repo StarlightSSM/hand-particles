@@ -23,9 +23,13 @@
   </div>
 
   <div id="keys" class="ui">
-    <b>F</b> 전체화면 &nbsp; <b>M</b> 소리 &nbsp; <b>R</b> 처음부터 &nbsp; <b>⇧R</b> 기억 지우고 처음부터 &nbsp; <b>D</b> 센서 보기
+    <b>F</b> 전체화면 &nbsp; <b>M</b> 소리 &nbsp; <b>R</b> 처음부터 &nbsp; <b>⇧R</b> 기억 지우고 처음부터 &nbsp; <b>D</b> 센서 보기 &nbsp; <b>Enter</b> 말 걸기
   </div>
   <div id="toast" class="ui"></div>
+  <!-- 아이에게 말 걸기: Enter 로 열고, Enter 로 보내기, Esc 로 닫기 -->
+  <form id="talk" class="ui" autocomplete="off">
+    <input id="talkIn" maxlength="40" placeholder="아이에게 말 걸기 · Enter" spellcheck="false">
+  </form>
   <div id="debug" class="ui" hidden><canvas width="240" height="135"></canvas><pre></pre></div>
 
   <script type="module" src="hello/main.js"></script>

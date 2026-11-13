@@ -42,6 +42,7 @@ export function createCreature(canvas, hooks = {}) {
     sparkle: 0, tSparkle: 0, bounceT: -9, bounceAmp: 0,
     attn: 'auto', lookPt: null, glance: null, glanceUntil: 0, wanderPt: null, wanderT: 0,
     interest: 0, autoBlink: true, alive: false,
+    conv: 0, winkSide: 0, winkUntil: 0,
   };
 
   /* ───────────────────── 크기 ───────────────────── */
@@ -108,6 +109,9 @@ export function createCreature(canvas, hooks = {}) {
     const tip = sense.tips[0];
     const near = tip ? clamp(1 - Math.hypot(tip.x - st.x, tip.y - st.y) / (E * 5), 0, 1) : 0;
     st.interest = damp(st.interest, near, 3, dt);
+    const p = facePose();
+    const dc = tip ? Math.hypot(tip.x - p.x, tip.y - p.y) : 1e9;
+    st.conv = damp(st.conv, clamp(1 - dc / (E * 1.05), 0, 1), 6, dt);
   }
 
   /* ───────────────────── 갱신 ───────────────────── */
@@ -220,7 +224,8 @@ export function createCreature(canvas, hooks = {}) {
 
   function drawEye(side) {
     const m = st.m;
-    const hap = sstep(0.3, 0.85, m.happy), sq = sstep(0.25, 0.8, m.squeeze);
+    const wink = st.winkSide === side && st.t < st.winkUntil ? 1 : 0;
+    const hap = Math.max(sstep(0.3, 0.85, m.happy), wink), sq = sstep(0.25, 0.8, m.squeeze);
     const vis = (1 - hap) * (1 - sq);
     const o = clamp(st.lid * m.open * (1 - st.blink), 0, 1.3) * (1 - sq);
     const c = curves(side, o);
@@ -256,7 +261,7 @@ export function createCreature(canvas, hooks = {}) {
     g.clip();
 
     // 홍채
-    const ix = st.gx * 0.2 * E, iy = st.gy * 0.13 * E + 0.03 * E;
+    const ix = (st.gx - side * st.conv * 0.55) * 0.2 * E, iy = st.gy * 0.13 * E + 0.03 * E;
     const rx = 0.245 * E, ry = 0.305 * E;
     const h = st.hue, s = st.sat * 100, l = st.lit * 100;
     const col = (dl, ds = 0, a = 1) => `hsla(${h}, ${clamp(s + ds, 0, 100)}%, ${clamp(l + dl, 3, 97)}%, ${a})`;
@@ -447,9 +452,10 @@ export function createCreature(canvas, hooks = {}) {
     hint: () => `400 ${clamp(E * 0.13, 13, 18).toFixed(0)}px "Gowun Batang", serif`,
     title: () => `400 ${clamp(E * 0.26, 22, 40).toFixed(0)}px "Gowun Batang", serif`,
     sub: () => `400 ${clamp(E * 0.12, 12, 17).toFixed(0)}px "Gowun Batang", serif`,
+    you: () => `400 ${clamp(E * 0.15, 15, 22).toFixed(0)}px "Gowun Batang", serif`,
   };
 
-  function say(text, { speed = 1, hold } = {}) {
+  function say(text, { speed = 1, hold, keep = false } = {}) {
     // 앞 대사가 아직 보이면 위로 빠지며 사라질 시간을 준 뒤 시작 (겹침 방지)
     let delay = 0;
     for (const x of texts) {
@@ -465,7 +471,8 @@ export function createCreature(canvas, hooks = {}) {
     }
     const T = { kind: 'say', text, chars: [...text], t0: st.t + delay, times: times.map((x) => x / speed), shown: 0, res: null };
     T.typeEnd = T.t0 + tt / speed;
-    T.holdUntil = T.typeEnd + (hold ?? 1.3 + text.length * 0.07);
+    T.holdUntil = keep ? Infinity : T.typeEnd + (hold ?? 1.3 + text.length * 0.07);
+    T.keep = keep; // keep: 다 쓰면 바로 다음으로 넘어가되, 글씨는 다음 대사가 올 때까지 남김
     texts.push(T);
     return new Promise((res) => { T.res = res; });
   }
@@ -487,6 +494,7 @@ export function createCreature(canvas, hooks = {}) {
           T.shown++;
         }
       }
+      if (T.keep && T.res && st.t > T.typeEnd + 0.3) { T.res(); T.res = null; }
       if (!T.fadeT && st.t > T.holdUntil) endText(T);
       if (T.fadeT && st.t - T.fadeT > 1.2) texts.splice(i, 1);
     }
@@ -505,8 +513,11 @@ export function createCreature(canvas, hooks = {}) {
       if (T.kind === 'say') { const p = facePose(); y = p.y + E * 1.32; color = INK(); }
       else if (T.kind === 'hint') { y = T.y ?? H * 0.87; color = 'rgba(70,70,82,0.62)'; g.letterSpacing = '0.18em'; }
       else if (T.kind === 'title') { y = T.y ?? H * 0.8; color = 'rgba(40,40,52,0.82)'; g.letterSpacing = '0.3em'; }
+      else if (T.kind === 'you') { // 내가 적은 말 — 떠올랐다가 물속으로 가라앉음
+        y = H * 0.79 + (T.fadeT ? (st.t - T.fadeT) * E * 0.5 : 0); color = 'rgba(52,64,104,0.78)'; g.letterSpacing = '0.06em';
+      }
       else { y = T.y ?? H * 0.85; color = 'rgba(70,70,82,0.6)'; g.letterSpacing = '0.2em'; }
-      if (T.fadeT) { g.filter = `blur(${((1 - fade) * 4).toFixed(2)}px)`; y -= (1 - fade) * E * (T.kind === 'say' ? 0.38 : 0.12); }
+      if (T.fadeT) { g.filter = `blur(${((1 - fade) * 4).toFixed(2)}px)`; if (T.kind !== 'you') y -= (1 - fade) * E * (T.kind === 'say' ? 0.38 : 0.12); }
       g.fillStyle = color;
       const widths = T.chars.map((ch) => g.measureText(ch).width);
       const total = g.measureText(T.text).width;
@@ -558,10 +569,12 @@ export function createCreature(canvas, hooks = {}) {
     bounce(a = 1) { st.bounceT = st.t; st.bounceAmp = a; },
     identity(h, s, l = 0.4) { st.tHue = h; st.tSat = s; st.tLit = l; },
     sparkle(v) { st.tSparkle = v; },
+    wink(side = 1, dur = 0.7) { st.winkSide = side; st.winkUntil = st.t + dur; },
+    get conv() { return st.conv; },
     reset() {
       Object.assign(st, {
         presence: 0, tPresence: 0, reveal: 0, tReveal: 0, lid: 0, tLid: 0, alive: false, blink: 0, blinkT: -1,
-        mood: 'neutral', base: 'neutral', attn: 'auto', tTilt: 0, tilt: 0, sparkle: 0, tSparkle: 0,
+        mood: 'neutral', base: 'neutral', attn: 'auto', tTilt: 0, tilt: 0, sparkle: 0, tSparkle: 0, winkUntil: 0,
         hue: 225, tHue: 225, sat: 0.06, tSat: 0.06, lit: 0.34, tLit: 0.34,
       });
       texts.length = 0;

@@ -109,6 +109,23 @@ export function createSound() {
     [0, 0.085, 0.17].forEach((d, k) => setTimeout(() => blip('하', 0, 3, ''), d * 1000 + k));
   }
 
+  /* 쓰다듬을 때: 낮고 부드러운 그르릉 */
+  function purr() {
+    if (!ok()) return;
+    const ctx = S.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 92;
+    const trem = ctx.createOscillator(), tg = ctx.createGain();
+    trem.frequency.value = 23; tg.gain.value = 0.5;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.06, t + 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+    const am = ctx.createGain(); am.gain.value = 0.5;
+    trem.connect(tg); tg.connect(am.gain);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500;
+    o.connect(lp); lp.connect(am); am.connect(g); route(g, 0, 0.3);
+    o.start(t); trem.start(t); o.stop(t + 1.4); trem.stop(t + 1.4);
+    [0, 0.12].forEach((d) => setTimeout(() => blip('응', 0, 2, ''), 350 + d * 1000));
+  }
+
   /* 종소리 아르페지오 */
   function chime(notes = [74, 78, 81, 86, 88], gap = 0.13, vol = 0.07) {
     if (!ok()) return;
@@ -176,5 +193,5 @@ export function createSound() {
     if (S.out) S.out.gain.setTargetAtTime(m ? 0 : S.vol, S.ctx.currentTime, 0.1);
   }
 
-  return Object.assign(S, { init, drop, blip, setVoice, flinch, giggle, chime, swell, ambient, setMuted });
+  return Object.assign(S, { init, drop, blip, setVoice, flinch, giggle, purr, chime, swell, ambient, setMuted });
 }

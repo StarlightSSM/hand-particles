@@ -65,8 +65,26 @@ async function start() {
   director.run();
 }
 $('#begin').addEventListener('click', start);
+
+/* ───────── 말 걸기 (키보드) ───────── */
+const talkForm = $('#talk'), talkIn = $('#talkIn');
+const openTalk = () => { talkForm.classList.add('open'); talkIn.focus(); };
+const closeTalk = () => { talkForm.classList.remove('open'); talkIn.value = ''; talkIn.blur(); };
+talkForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = talkIn.value.trim();
+  closeTalk();
+  if (text) director.emit('text', { text });
+});
+talkIn.addEventListener('keydown', (e) => {
+  e.stopPropagation(); // 입력 중에는 단축키 무시
+  if (e.key === 'Escape') closeTalk();
+});
+talkIn.addEventListener('blur', () => { if (!talkIn.value.trim()) talkForm.classList.remove('open'); });
+
 addEventListener('keydown', (e) => {
   if (!started && (e.key === 'Enter' || e.key === ' ')) { start(); return; }
+  if (e.key === 'Enter' && started && !e.isComposing) { e.preventDefault(); openTalk(); return; }
   const k = e.key.toLowerCase();
   if (k === 'm') { sound.setMuted(!sound.muted); toast(sound.muted ? '소리 끔' : '소리 켬'); }
   else if (k === 'f') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }
@@ -96,6 +114,8 @@ function drawDebug() {
     `phase   ${director.phase}\nhands   ${sense.handsN}  motion ${sense.motion.toFixed(2)}  still ${sense.still.toFixed(1)}\n` +
     `face    ${sense.face ? `${sense.face.size.toFixed(2)} (${sense.face.nx.toFixed(2)}, ${sense.face.ny.toFixed(2)})` : '—'}\n` +
     `away    ${sense.away.toFixed(1)}  idle ${sense.idle.toFixed(1)}\n` +
+    `gesture ${sense.gesture ?? '—'}  asking ${director.asking}
+` +
     `traits  warm ${tr.warm.toFixed(1)} play ${tr.play.toFixed(1)} calm ${tr.calm.toFixed(1)} gaze ${tr.gaze.toFixed(1)}\n` +
     `tips    ${sense.tips.map((t) => `${t.key}:${t.hover.toFixed(2)}/${t.dwell.toFixed(2)}`).join(' ')}`;
 }

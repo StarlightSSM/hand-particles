@@ -17,6 +17,8 @@ export function createSense(emit) {
     tips: [],        // [{x, y, hover(0=수면에 닿을 듯~1=멂), dwell(0~1), key}]
     handsN: 0,
     face: null,      // {x, y, size, nx, ny}
+    gesture: null,   // 지금 손 모양: thumbsUp thumbsDown peace open fist one three
+    hiding: false,   // 두 손으로 얼굴을 가린 중 (까꿍 준비)
     faceT: 0,        // 얼굴이 연속으로 보인 시간
     motion: 0,       // 손 움직임 에너지 0~1
     still: 0,        // 손을 보인 채 가만히 있은 시간
@@ -31,6 +33,7 @@ export function createSense(emit) {
     hist: [], lastTap: -9, pinch: false,
     dwellT: 0, dwellAt: null, armed: true,
     lastSign: 0, lastRevT: -9, wave: 0, lastWave: -9,
+    gCand: null, gT: 0, gStable: null, gMiss: 0,
   });
   const slots = { a: mk('a'), b: mk('b') };
   const mouse = { ...mk('m'), seen: -99, down: false };
@@ -86,19 +89,30 @@ export function createSense(emit) {
         if (!s.present) { s.init = false; s.since = P.t; s.hist.length = 0; }
         s.raw = got[k]; s.miss = 0; s.present = true;
       } else if (++s.miss > 6 && s.present) {
-        s.present = false; s.pinch = false; s.dwellT = 0;
+        s.present = false; s.pinch = false; s.dwellT = 0; s.gStable = s.gCand = null;
       }
     }
   }
 
   function faceRes(res) {
     const d = res.detections?.[0];
-    if (!d || !vid.videoWidth) { P.faceMiss = (P.faceMiss || 0) + 1; if (P.faceMiss > 8 && P.face) { P.face = null; emit('faceOut'); } return; }
+    if (!d || !vid.videoWidth) {
+      P.faceMiss = (P.faceMiss || 0) + 1;
+      if (P.faceMiss > 8 && P.face) {
+        P.face = null; emit('faceOut');
+        if (P.handsN > 0) { P.hiding = true; P.hideT = P.t; emit('hide'); }
+      }
+      return;
+    }
     P.faceMiss = 0;
     const b = d.boundingBox;
     const c = toS((b.originX + b.width / 2) / vid.videoWidth, (b.originY + b.height / 2) / vid.videoHeight);
     const size = b.width / vid.videoWidth;
-    if (!P.face) { P.face = { x: c.x, y: c.y, size }; P.faceT = 0; emit('faceIn'); }
+    if (!P.face) {
+      P.face = { x: c.x, y: c.y, size }; P.faceT = 0; emit('faceIn');
+      if (P.hiding && P.t - P.hideT > 0.5 && P.t - P.hideT < 8) emit('peekaboo');
+      P.hiding = false;
+    }
     const f = P.face;
     f.x += (c.x - f.x) * 0.35; f.y += (c.y - f.y) * 0.35; f.size += (size - f.size) * 0.3;
     f.nx = clamp((f.x - W() / 2) / (W() / 2), -1.2, 1.2);
@@ -124,7 +138,27 @@ export function createSense(emit) {
     const pinchR = d(4, 8) / scale;
     s.scale = scale;
     s.hover = clamp(1 - (scale - 0.1) / 0.26, 0, 1);
-    s.hist.push({ t: P.t, scale, idx, x: s.tip.x, y: s.tip.y });
+
+    // 손 모양
+    const ext = (tip, pip) => d(tip, 0) > d(pip, 0) * 1.12;
+    const iE = ext(8, 6), mE = ext(12, 10), rE = ext(16, 14), pE = ext(20, 18);
+    const n4 = iE + mE + rE + pE;
+    const thumbOut = d(4, 5) / scale > 0.55 && d(4, 0) > d(3, 0);
+    let gname = null;
+    if (n4 === 0) {
+      const dy = (R[4].y - R[2].y) / scale;
+      gname = thumbOut && dy < -0.4 ? 'thumbsUp' : thumbOut && dy > 0.4 ? 'thumbsDown' : 'fist';
+    } else if (n4 === 4) gname = 'open';
+    else if (iE && mE && !rE && !pE) gname = 'peace';
+    else if (iE && !mE && !rE && !pE) gname = 'one';
+    else if (iE && mE && rE && !pE) gname = 'three';
+    if (gname === s.gCand) s.gT += dt; else { s.gCand = gname; s.gT = 0; }
+    if (s.gT > 0.32 && gname !== s.gStable) {
+      s.gStable = gname;
+      if (gname) emit('gesture', { name: gname, x: s.palm.x, y: s.palm.y });
+    }
+    const pointing = iE && !mE && !rE && !pE;
+    s.hist.push({ t: P.t, scale, idx, x: s.tip.x, y: s.tip.y, pointing });
     while (s.hist.length && P.t - s.hist[0].t > 0.45) s.hist.shift();
 
     // 1) 톡
@@ -134,8 +168,10 @@ export function createSense(emit) {
       let minScale = 9, maxIdx = 0;
       for (const h of win) { minScale = Math.min(minScale, h.scale); maxIdx = Math.max(maxIdx, h.idx); }
       const jab = scale / minScale > 1.13;
-      const flick = maxIdx > 0.62 && (maxIdx - idx) / maxIdx > 0.32;
-      const pinchTap = !s.pinch && pinchR < 0.22;
+      // 까딱: 검지만 편 상태에서 시작했을 때만 (주먹 쥐는 동작과 구분)
+      const flick = win[0]?.pointing && maxIdx > 0.62 && (maxIdx - idx) / maxIdx > 0.32;
+      // 엄지-검지 맞대기: 나머지 손가락이 펴져 있을 때만 (주먹·엄지척과 구분)
+      const pinchTap = !s.pinch && pinchR < 0.22 && (mE || rE || pE);
       if (jab || flick || pinchTap) {
         const ref = win[0] || s.hist[s.hist.length - 1];
         tap(ref.x, ref.y, jab ? 'jab' : flick ? 'flick' : 'pinch', s);
@@ -144,7 +180,6 @@ export function createSense(emit) {
     if (pinchR < 0.22) s.pinch = true; else if (pinchR > 0.36) s.pinch = false;
 
     // 2) 머무르기 — 검지를 편 채 잠시 멈추면 손끝에 물방울이 맺혀 떨어짐
-    const pointing = idx > 0.55;
     if (!s.dwellAt) s.dwellAt = { ...s.tip };
     const moved = Math.hypot(s.tip.x - s.dwellAt.x, s.tip.y - s.dwellAt.y);
     if (moved > 42) { s.dwellAt = { ...s.tip }; s.dwellT = 0; s.armed = true; }
@@ -174,7 +209,7 @@ export function createSense(emit) {
   function tap(x, y, kind, s) {
     if (s) { s.lastTap = P.t; s.hist.length = 0; }
     P.idle = 0;
-    emit('tap', { x, y, kind });
+    emit('tap', { x, y, kind, gesture: s?.gStable ?? null });
   }
 
   /* ───────── 마우스 ───────── */
@@ -224,6 +259,8 @@ export function createSense(emit) {
       P.handsN = n;
     }
     P.tips = tips;
+    const gs = [slots.a, slots.b].filter((s) => s.present && s.gStable);
+    P.gesture = gs.length ? gs[gs.length - 1].gStable : null;
     const m = clamp(speed / (W() * 0.9), 0, 1);
     P.motion += (m - P.motion) * 0.15;
     if (tips.length && speed < W() * 0.05) P.still += dt; else P.still = 0;
