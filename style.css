@@ -23,7 +23,7 @@ html, body {
 #vfx { z-index: 5; pointer-events: none; }
 body.vmode #bgv { display: block; }
 body.vmode #stage { mix-blend-mode: screen; }       /* 검정 = 투명처럼, 파티클은 빛처럼 더해짐 */
-body.m-box #stage, body.m-hud #stage { visibility: hidden; }
+body.m-box #stage, body.m-hud #stage, body.m-glass #stage { visibility: hidden; }
 body.m-orb #bgv { filter: brightness(.3) saturate(.7); }
 body.m-hud #bgv { filter: brightness(.55) saturate(.6) contrast(1.05); }
 body.vmode #cam { opacity: 0; pointer-events: none; }  /* display:none 이면 인식용 video가 멈출 수 있어 투명 처리 */
@@ -78,6 +78,7 @@ body.nocam #cam { opacity: 0; pointer-events: none; }
 body:not(.m-text) #textNode { display: none; }
 body:not(.m-box) #boxNode { display: none; }
 body:not(.m-hud) #hudNode { display: none; }
+body:not(.m-glass) #glassNode { display: none; }
 .node-h.sub-h { border-top: 1px solid var(--line); }
 .node-h span { letter-spacing: .04em; opacity: .8; }
 

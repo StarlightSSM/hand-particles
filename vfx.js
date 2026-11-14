@@ -2,11 +2,13 @@
 //  04 BOX : 두 손 엄지·검지가 모서리가 되는 3D 상자. 상자 앞면 안쪽만 MOSAIC / DITHER / THERMAL / ASCII 필터
 //  05 ORB : 엄지-검지 컨트롤 라인 + "Spin" / "Particles" 수치 라벨 (파티클 자체는 main.js의 three.js)
 //  06 HUD : 손을 따라다니는 방사형 오디오 비주얼라이저 (bars · ticks · rings · labels)
+//  07 GLASS : 두 손으로 든 유리·거울 조각 — 안쪽에 주변이 뒤집혀 비치고, 가장자리엔 빨강·검정 띠
 import { createAudio } from './audio.js';
 
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const FILTERS = ['mosaic', 'dither', 'thermal', 'ascii'];
+export const GLASS_STYLES = ['mirror', 'prism', 'negative'];
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 const ASCII = ' .:-=+*#%@';
 const RING_COLS = ['#ffffff', '#f4a8dc', '#ffd84a', '#3b7bff', '#b58cff', '#7fe0c4'];
@@ -217,6 +219,147 @@ export function initVfx(E) {
     g.restore();
   }
 
+  /* ─────────────────────────── 07 GLASS ─────────────────────────── */
+  // 두 손 사이에 든 유리·거울 조각: 조각 안에는 주변이 뒤집혀 비치고, 가장자리엔 빨강·검정 띠
+  const GLASS = { style: 'mirror', info: '' };
+
+  // 조각 모양: { pts: 다각형, edges: [[a,b,'red'|'black'|'hi'], ...], c: 중심, ang: 긴 축 각도, len }
+  function glassShape() {
+    const hs = live();
+    if (hs.length >= 2) {
+      const B = boxQuad();
+      let [p0, p1, p2, p3] = B.q;
+      // 끝이 완전히 붙어도 아주 얇은 날은 남게
+      const keep = (a, b, min) => {
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d >= min) return [a, b];
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, k = min / 2;
+        return [add(m, B.n, k), add(m, B.n, -k)];
+      };
+      // 넓은 쪽 끝은 최소한 길이의 18% 두께 — 손가락을 조금만 벌려도 두툼한 칼날이 되게 (좁은 끝은 뾰족하게 둠)
+      const wL = Math.hypot(p0.x - p3.x, p0.y - p3.y), wR = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const wide = Math.max(B.len * 0.18, 24);
+      if (wL >= wR) { [p0, p3] = keep(p0, p3, wide); [p1, p2] = keep(p1, p2, 6); }
+      else { [p0, p3] = keep(p0, p3, 6); [p1, p2] = keep(p1, p2, wide); }
+      return {
+        pts: [p0, p1, p2, p3], edges: [[p0, p1, 'red'], [p3, p2, 'black'], [p1, p2, 'hi'], [p3, p0, 'hi']],
+        c: { x: (p0.x + p1.x + p2.x + p3.x) / 4, y: (p0.y + p1.y + p2.y + p3.y) / 4 },
+        ang: Math.atan2(B.u.y, B.u.x), len: B.len, two: true,
+      };
+    }
+    let a, b, dir, len;
+    if (hs.length === 1) {
+      const h = hs[0];
+      a = toS(h.lm[8]); b = toS(h.lm[4]);
+      const m5 = toS(h.lm[5]);
+      dir = { x: a.x - m5.x, y: a.y - m5.y };
+      len = Math.max(160, h.px * 3.2);
+    } else if (E.mouseActive() && E.mouse.down) {
+      const s = toS({ x: E.mouse.x0, y: E.mouse.y0 }), e = toS(E.mouse);
+      dir = { x: e.x - s.x, y: e.y - s.y };
+      len = Math.hypot(dir.x, dir.y);
+      if (len < 30) return null;
+      const n = { x: -dir.y / len, y: dir.x / len };
+      a = add(s, n, 40); b = add(s, n, -40);
+      len = Math.max(len, 60);
+    } else return null;
+    const dl = Math.hypot(dir.x, dir.y) || 1;
+    dir.x /= dl; dir.y /= dl;
+    const base = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const tip = add(base, dir, len);
+    return {
+      pts: [a, tip, b], edges: [[a, tip, 'red'], [tip, b, 'black'], [b, a, 'hi']],
+      c: { x: (a.x + b.x + tip.x) / 3, y: (a.y + b.y + tip.y) / 3 },
+      ang: Math.atan2(dir.y, dir.x), len, two: false,
+    };
+  }
+
+  // 거울처럼 뒤집힌 웹캠 화면 전체를 지금 변환 위에 그린다 (배경 #bgv와 같은 cover 배치)
+  function drawCam(t) {
+    const v = E.vid;
+    if (E.camOK() && v.readyState >= 2 && v.videoWidth) {
+      const s = Math.max(W / v.videoWidth, H / v.videoHeight), dw = v.videoWidth * s, dh = v.videoHeight * s;
+      g.save(); g.translate(W, 0); g.scale(-1, 1);
+      g.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      g.restore();
+    } else {
+      const gr = g.createLinearGradient(0, 0, W, H);
+      gr.addColorStop(0, `hsl(${(t * 40) % 360},40%,55%)`); gr.addColorStop(1, `hsl(${(t * 40 + 160) % 360},40%,25%)`);
+      g.fillStyle = gr; g.fillRect(-W, -H, W * 3, H * 3);
+    }
+  }
+  // 조각의 긴 축을 기준으로 뒤집고(반사) 살짝 확대
+  function reflectAbout(c, ang, zoom, mirror = true) {
+    g.translate(c.x, c.y);
+    if (mirror) { const c2 = Math.cos(2 * ang), s2 = Math.sin(2 * ang); g.transform(c2, s2, s2, -c2, 0, 0); }
+    g.scale(zoom, zoom);
+    g.translate(-c.x, -c.y);
+  }
+
+  function drawGlassMode(t) {
+    const S = glassShape();
+    if (!S) { hint('두 손 엄지·검지로 유리 조각 양 끝을 잡아보세요  ·  한 손이면 검지 방향으로 뻗는 조각'); return; }
+    const st = GLASS.style;
+    g.save();
+    poly(S.pts); g.clip();
+    g.fillStyle = '#111'; g.fillRect(0, 0, W, H);
+    if (st === 'prism') {
+      // 무지개 굴절: 확대한 장면 세 겹을 색을 돌려 어긋나게 더함
+      const n = { x: -Math.sin(S.ang), y: Math.cos(S.ang) };
+      g.globalCompositeOperation = 'lighter';
+      [[0, -9], [120, 0], [240, 9]].forEach(([hue, off]) => {
+        g.save();
+        g.globalAlpha = 0.4;
+        g.translate(n.x * off, n.y * off);
+        reflectAbout(S.c, S.ang, 1.45, false);
+        g.filter = `hue-rotate(${hue}deg) saturate(2.4) brightness(0.72)`;
+        drawCam(t);
+        g.restore();
+      });
+      g.globalCompositeOperation = 'source-over';
+    } else {
+      g.save();
+      reflectAbout(S.c, S.ang + Math.sin(t * 0.7) * 0.03, 1.18);
+      g.filter = st === 'negative' ? 'invert(1) hue-rotate(180deg) contrast(1.25)' : 'grayscale(1) contrast(1.3) brightness(1.04)';
+      drawCam(t);
+      g.restore();
+    }
+    g.filter = 'none';
+    // 유리 표면: 긴 축을 따라 지나가는 빛 줄기 + 위쪽이 살짝 밝은 광택
+    const ux = Math.cos(S.ang), uy = Math.sin(S.ang), L = Math.max(S.len, 120);
+    const a = add(S.c, { x: ux, y: uy }, -L * 0.6), b = add(S.c, { x: ux, y: uy }, L * 0.6);
+    const sw = (t * 0.22 + S.ang / TAU + 10) % 1.4 - 0.2;
+    const gr = g.createLinearGradient(a.x, a.y, b.x, b.y);
+    const stop = (p, al) => gr.addColorStop(clamp(p, 0, 1), `rgba(255,255,255,${al})`);
+    stop(0, 0); stop(sw - 0.12, 0); stop(sw, 0.42); stop(sw + 0.03, 0.12); stop(sw + 0.12, 0); stop(1, 0);
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    g.fillStyle = 'rgba(200,220,235,0.06)'; g.fillRect(0, 0, W, H);
+    g.restore();
+
+    // 가장자리 띠
+    g.save();
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const [p, q, kind] of S.edges) {
+      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y);
+      if (kind === 'red') {
+        g.strokeStyle = '#d71f1f'; g.lineWidth = 8; g.stroke();
+        g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineWidth = 2; g.stroke();
+      } else if (kind === 'black') {
+        g.strokeStyle = 'rgba(8,8,8,0.92)'; g.lineWidth = 4; g.stroke();
+        g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 1; g.stroke();
+      } else {
+        g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 1.2; g.stroke();
+      }
+    }
+    g.restore();
+
+    g.font = '10px ui-monospace, Consolas, monospace';
+    g.fillStyle = E.pal().acc;
+    const low = S.pts.reduce((m, p) => (p.y > m.y ? p : m), S.pts[0]);
+    const deg = ((S.ang * 180) / Math.PI).toFixed(0);
+    g.fillText(`glass  len ${S.len | 0}  angle ${deg}°  ${st.toUpperCase()}`, low.x, low.y + 18);
+  }
+
   /* ─────────────────────────── 05 ORB ─────────────────────────── */
   function drawOrbMode() {
     const O = E.G.orb;
@@ -396,7 +539,7 @@ export function initVfx(E) {
   /* ─────────────────────────── 공통 ─────────────────────────── */
   function draw(t) {
     const mode = E.S.mode;
-    const v = mode === 'box' || mode === 'orb' || mode === 'hud';
+    const v = mode === 'box' || mode === 'orb' || mode === 'hud' || mode === 'glass';
     if (mode !== 'hud') audio.silence();
     if (!v && !dirty) return;
     g.clearRect(0, 0, W, H);
@@ -404,10 +547,13 @@ export function initVfx(E) {
     if (mode === 'box') drawBoxMode(t);
     else if (mode === 'orb') drawOrbMode();
     else if (mode === 'hud') drawHudMode(t);
+    else if (mode === 'glass') drawGlassMode(t);
   }
 
   function setFilter(f) { if (FILTERS.includes(f)) BOX.filter = f; }
   function cycleFilter() { setFilter(FILTERS[(FILTERS.indexOf(BOX.filter) + 1) % FILTERS.length]); }
+  function setGlass(s) { if (GLASS_STYLES.includes(s)) GLASS.style = s; }
+  function cycleGlass() { setGlass(GLASS_STYLES[(GLASS_STYLES.indexOf(GLASS.style) + 1) % GLASS_STYLES.length]); }
 
-  return { draw, resize, setFilter, cycleFilter, box: BOX, layers, audio };
+  return { draw, resize, setFilter, cycleFilter, setGlass, cycleGlass, box: BOX, glass: GLASS, layers, audio };
 }
