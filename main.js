@@ -26,8 +26,8 @@ let PAL = PALETTES.ice;
 // 두 손 핀치로 조절하는 전역 변형 (text: 글자 크기/회전, cloud: 오브젝트 변형, flow: 빔)
 const G = { scale: 1, rot: 0, two: null, cloudRX: 0, cloudRY: 0, orb: { spin: 0.3, part: 0.4, ang: 0, ctrls: [] } };
 // 04~06: 웹캠 영상을 배경으로 깔고 그 위에 합성하는 모드
-const VMODES = new Set(['box', 'orb', 'hud']);
-const MODES = ['text', 'flow', 'cloud', 'box', 'orb', 'hud'];
+const VMODES = new Set(['box', 'orb', 'hud', 'glass']);
+const MODES = ['text', 'flow', 'cloud', 'box', 'orb', 'hud', 'glass'];
 const isV = () => VMODES.has(S.mode);
 
 /* ───────────────────────── three.js ───────────────────────── */
@@ -209,6 +209,7 @@ function updateHands(now) {
     if (h.pinch && !was) onPinchStart(h);
     if (!h.pinch && was) onPinchEnd(h);
     if (h.fist && !h.prevFist && S.mode === 'box') { V.cycleFilter(); syncFilterBtns(); }
+    if (h.fist && !h.prevFist && S.mode === 'glass') { V.cycleGlass(); syncFilterBtns(); }
     h.prevFist = h.fist;
   }
   updateTwoHand();
@@ -840,7 +841,7 @@ function setMode(m) {
   if (m === 'flow') initFlow();
   if (m === 'cloud') initCloud();
   if (m === 'orb') initOrb();
-  if (m === 'box' || m === 'hud') N = 0;
+  if (m === 'box' || m === 'hud' || m === 'glass') N = 0;
   applyFx();
   renderHints(m);
 }
@@ -849,6 +850,7 @@ const HINTS = {
   text: [['✋ 펼친 손', '휘젓기·밀어내기'], ['🤏 핀치', '끌어당기기 → 놓으면 폭발'], ['✊ 주먹', '흩어 놓기 (펴면 다시 모임)'], ['🤏🤏 두 손 핀치', '글자 크기·회전']],
   flow: [['✋ 펼친 손', '소용돌이 + 입자 방출'], ['🤏 핀치', '끌어당기기 → 놓으면 폭발'], ['✊ 주먹', '시간 정지'], ['🤏🤏 두 손 핀치', '손 사이 빛줄기']],
   cloud: [['✋ 펼친 손', '막 누르기'], ['🤏 핀치', '파문'], ['✊ 주먹', '쥐고 움직여 회전'], ['🤏🤏 두 손 핀치', '확대·회전']],
+  glass: [['🙌 두 손 엄지·검지', '유리 조각 양 끝 잡기'], ['🤏 한쪽만 오므리기', '뾰족한 칼날 모양'], ['↻ 기울이기', '반사 각도'], ['✊ 주먹', 'MIRROR → PRISM → NEGATIVE'], ['☝ 한 손', '검지 방향으로 뻗는 조각']],
   box: [['🙌 두 손 엄지·검지', '상자 양 끝 잡기'], ['↔ 손 사이 거리', '상자 길이'], ['🤏 엄지-검지 간격', '높이·픽셀 크기'], ['✊ 주먹', '필터 전환'], ['☝ 한 손', '엄지-검지 사각형']],
   orb: [['👈 왼쪽 손 엄지-검지', 'Spin 회전 속도'], ['👉 오른쪽 손 엄지-검지', 'Particles 퍼짐·촉수'], ['✋ 오브에 손 넣기', '밀어내기'], ['Space', '폭발']],
   hud: [['✋ 손바닥', 'HUD 위치'], ['↻ 손 기울기', 'ROTATION · 음높이'], ['🤏 엄지-검지', 'DISTANCE · 크기·필터'], ['💨 빠른 움직임', 'VELOCITY'], ['SYNTH / MIC', '소리 반응']],
@@ -857,7 +859,7 @@ function renderHints(m) {
   const esc = (x) => x.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   $('#hints').innerHTML = HINTS[m].map(([k, v]) => `<span><b>${esc(k)}</b> ${esc(v)}</span>`).join('')
     + '<span><b>☝ 버튼 위에 손가락</b> 잠시 두면 클릭</span>'
-    + '<span class="keys">1~6 모드 · H UI 숨김 · C 카메라 · 마우스도 가능</span>';
+    + '<span class="keys">1~7 모드 · H UI 숨김 · C 카메라 · 마우스도 가능</span>';
 }
 function applyFx() {
   const base = { text: 0.8, flow: 0.86, cloud: 0.5, orb: 0.84 }[S.mode] ?? 0;
@@ -885,6 +887,7 @@ document.querySelectorAll('[data-toggle]').forEach((b) => b.addEventListener('cl
   applyFx();
 }));
 function syncFilterBtns() {
+  document.querySelectorAll('[data-glass]').forEach((b) => b.classList.toggle('on', b.dataset.glass === V.glass.style));
   document.querySelectorAll('[data-filter]').forEach((b) => b.classList.toggle('on', b.dataset.filter === V.box.filter));
 }
 function syncLayerBtns() {
@@ -892,6 +895,7 @@ function syncLayerBtns() {
   document.querySelectorAll('[data-audio]').forEach((b) => b.classList.toggle('on', !!V.audio[b.dataset.audio]));
 }
 document.querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => { V.setFilter(b.dataset.filter); syncFilterBtns(); }));
+document.querySelectorAll('[data-glass]').forEach((b) => b.addEventListener('click', () => { V.setGlass(b.dataset.glass); syncFilterBtns(); }));
 document.querySelectorAll('[data-layer]').forEach((b) => b.addEventListener('click', () => {
   V.layers[b.dataset.layer] = !V.layers[b.dataset.layer]; syncLayerBtns();
 }));
@@ -914,6 +918,7 @@ addEventListener('keydown', (e) => {
   else if (e.key === '4') setMode('box');
   else if (e.key === '5') setMode('orb');
   else if (e.key === '6') setMode('hud');
+  else if (e.key === '7') setMode('glass');
   else if (e.key === 'h' || e.key === 'H') document.body.classList.toggle('noui');
   else if (e.key === 'c' || e.key === 'C') document.body.classList.toggle('nocam');
   else if (e.key === ' ') { burst(0, 0, Math.max(S.W, S.H), 30); e.preventDefault(); }
@@ -978,6 +983,7 @@ function loop(now) {
     foot[0].textContent = hands.a.present ? `${hands.a.gesture} ${hands.a.pinchR.toFixed(2)}` : '—';
     foot[1].textContent = hands.b.present ? `${hands.b.gesture} ${hands.b.pinchR.toFixed(2)}` : '—';
     const what = S.mode === 'box' ? `filter ${V.box.filter} · cell ${V.box.cell}px`
+      : S.mode === 'glass' ? `glass ${V.glass.style}`
       : S.mode === 'hud' ? V.audio.label() : `${N.toLocaleString()} particles`;
     if (landmarker) setStatus(`${S.mode.toUpperCase()} · ${what} · detect ${detMs.toFixed(1)}ms`);
   }
