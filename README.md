@@ -1,10 +1,31 @@
-# HAND · FIELD
+# HAND · FIELD  ·  hello, stranger
 
-노트북/PC 웹캠으로 손을 인식해서 화면 속 파티클·버튼과 상호작용하는 TouchDesigner 스타일 로컬 웹앱.
+노트북/PC 웹캠으로 손과 얼굴을 인식해 반응하는 로컬 웹 작품 두 가지가 들어 있습니다.
+
+- **HAND · FIELD**: 손으로 파티클과 영상 효과를 만지는 TouchDesigner 스타일 실험 화면 (7개 모드)
+- **hello, stranger**: 흰 수면 아래에서 깨어나, 나와 지내며 자기 이름을 찾아가는 아이
+
+![HAND·FIELD의 GLASS 모드와 hello, stranger의 첫 인사](docs/screenshots/hero.jpg)
 
 ## 실행
-`start.bat` 더블클릭 (또는 `node server.js` → http://localhost:8790). 카메라 권한 허용.
-라이브러리(three.js, MediaPipe)와 손 인식 모델은 `vendor/`에 들어 있어 인터넷 없이도 동작합니다.
+| 작품 | 실행 | 주소 |
+|---|---|---|
+| HAND · FIELD | `start.bat` 더블클릭 | http://localhost:8790 |
+| hello, stranger | `start-hello.bat` 더블클릭 | http://localhost:8790/hello.html |
+
+둘 다 `node server.js` 하나로 열 수 있고(종료는 `Ctrl+C`), 처음 열 때 카메라 권한을 허용하면 됩니다.
+라이브러리(three.js, MediaPipe, face-api)와 모델, 폰트는 `vendor/`·`assets/`에 들어 있어 인터넷 없이도 동작합니다.
+
+---
+
+## HAND · FIELD
+
+| | |
+|:-:|:-:|
+| ![01 TEXT](docs/screenshots/hf-01-text.jpg) **01 TEXT** — 파티클 글자를 손으로 흩뜨리기 | ![02 FLOW](docs/screenshots/hf-02-flow.jpg) **02 FLOW** — 흐름장 속 소용돌이와 입자 방출 |
+| ![03 CLOUD](docs/screenshots/hf-03-cloud.jpg) **03 CLOUD** — 웹캠 밝기로 만든 점 구름 막 누르기 | ![04 BOX](docs/screenshots/hf-04-box.jpg) **04 BOX** — 두 손으로 잡은 상자 안만 모자이크 |
+| ![05 ORB](docs/screenshots/hf-05-orb.jpg) **05 ORB** — 왼손 Spin · 오른손 Particles | ![06 HUD](docs/screenshots/hf-06-hud.jpg) **06 HUD** — 손바닥을 따라다니는 방사형 비주얼라이저 |
+| ![07 GLASS](docs/screenshots/hf-07-glass.jpg) **07 GLASS** — 두 손으로 든 거울 조각 (MIRROR) | ![07 GLASS PRISM](docs/screenshots/hf-07-glass-prism.jpg) **07 GLASS** — 무지개 굴절 (PRISM) |
 
 ## 제스처
 | 제스처 | 01 PARTICLE TEXT | 02 FLOW FIELD | 03 POINT CLOUD |
@@ -17,7 +38,7 @@
 
 키보드: `1`~`7` 모드 · `H` UI 숨김 · `C` 카메라 패널 · `Space` 폭발. 카메라가 없으면 마우스로 조작(클릭=핀치).
 
-### 04~06 — 웹캠 합성 모드 (TouchDesigner 레퍼런스 재현)
+### 04~07 — 웹캠 합성 모드 (TouchDesigner 레퍼런스 재현)
 웹캠 영상을 화면 전체에 깔고 그 위에 효과를 합성합니다. 손 좌표가 영상과 정확히 겹치도록 게인 1로 매핑.
 
 | 모드 | 조작 |
@@ -25,11 +46,22 @@
 | **04 BOX** | 두 손 엄지·검지로 상자 양 끝을 잡으면 3D 상자가 생기고, 앞면 안쪽만 필터(MOSAIC/DITHER/THERMAL/ASCII). 엄지-검지 간격 = 높이·픽셀 크기, ✊ 주먹 = 다음 필터. 한 손이면 엄지-검지 사각형 |
 | **05 ORB** | 화면 왼쪽 손 엄지-검지 간격 = **Spin**(회전 속도), 오른쪽 손 = **Particles**(퍼짐·촉수). 오브에 손을 넣으면 밀려남 |
 | **06 HUD** | 손바닥을 따라다니는 방사형 비주얼라이저. 손 기울기 = ROTATION, 엄지-검지 = DISTANCE, 손 속도 = VELOCITY. LAYERS(bars/ticks/rings/labels) 토글, SYNTH(손으로 연주하는 테레민) / MIC 입력에 반응 |
+| **07 GLASS** | 두 손 엄지·검지로 유리·거울 조각의 양 끝을 잡으면, 조각 안에 주변이 긴 축을 기준으로 뒤집혀 비침. 한쪽만 오므리면 뾰족한 칼날, 한 손이면 검지 방향으로 뻗는 조각. ✊ 주먹 = MIRROR → PRISM → NEGATIVE |
+
+<img src="docs/screenshots/hf-04-box-ascii.jpg" width="60%" alt="04 BOX의 ASCII 필터">
+
+<sub>04 BOX의 ASCII 필터 — 주먹을 쥘 때마다 MOSAIC → DITHER → THERMAL → ASCII</sub>
 
 ---
 
 ## hello, stranger — 흰 수면 아래의 아이
 `start-hello.bat` (또는 `node server.js` → http://localhost:8790/hello.html)
+
+| ① 시작 | ② 검지로 톡 — 물방울 | ③ 물결이 잦아들면 먹이 번짐 |
+|:-:|:-:|:-:|
+| ![시작 화면](docs/screenshots/hs-01-begin.jpg) | ![첫 물결](docs/screenshots/hs-02-ripple.jpg) | ![먹 번짐](docs/screenshots/hs-03-ink.jpg) |
+| **④ 감은 눈이 먹선으로 그어짐** | **⑤ 처음 세상을 보고 "안녕?"** | **⑥ 스스로 물결을 만들며 이름을 찾음** |
+| ![감은 눈](docs/screenshots/hs-04-lines.jpg) | ![안녕?](docs/screenshots/hs-05-hello.jpg) | ![이름을 찾는 순간](docs/screenshots/hs-06-naming.jpg) |
 
 아무것도 없는 흰 화면. 검지로 톡 건드리면 물방울처럼 수면이 출렁이고, 물결이 잦아들면 먹이 번지며
 처음 세상을 보는 아이가 눈을 뜹니다. "안녕?" — 아이는 나의 손, 흔드는 손짓, 얼굴을 하나씩 알아가고,
@@ -42,12 +74,18 @@
 | 손을 보인 채 가만히 있기 | **고요** (라벤더빛) |
 | 손을 내려놓고 바라보기 | **반짝** (호박빛) |
 
+![청록빛 눈의 살랑이 자기 이름을 말하는 장면](docs/screenshots/hs-07-name.jpg)
+
 - **톡** 판정: 손을 앞으로 찌르기 · 검지 까딱 · 엄지-검지 맞대기 · 손끝을 1초쯤 멈춰 두기(물방울이 맺혀 떨어짐) · 마우스 클릭
 - 아이는 얼굴 인식으로 **나를 바라보고**, 움직이는 손끝을 눈으로 따라갑니다. 가까이 다가가면 부끄러워해요.
 - 오래 떠나 있으면 잠들고, 돌아오면 깨어납니다. 이름은 다음 방문에도 기억합니다.
 - 키: `F` 전체화면 · `M` 소리 · `R` 처음부터 · `Shift+R` 기억 지우고 처음부터 · `D` 센서 보기 · `H` 키 도움말 · `Enter` 말 걸기
 
 ### 아이와 노는 법
+![아이의 표정 — 호기심 · 웃음 · 부끄러움 · 놀람](docs/screenshots/hs-moods.jpg)
+
+<sub>아이의 표정: 호기심(아직 이름 전, 회색 눈) · 웃음 ^^ · 부끄러움 · 놀람. 눈 색은 아이가 찾은 이름에 따라 달라져요.</sub>
+
 | 하는 것 | 아이 반응 |
 |---|---|
 | 아이 근처를 톡 없이 천천히 쓸기 | 쓰담쓰담 — 눈웃음, 그르릉 |
@@ -58,6 +96,8 @@
 | 검지를 미간에 가까이 | 두 눈이 가운데로 몰림 |
 | "심심해", "가위바위보" 라고 말하기 | 가위바위보 (✊ ✌ ✋ 로 내기) |
 
+<img src="docs/screenshots/hs-10-rps.jpg" width="60%" alt="가위바위보: 아이는 가위, 나는 바위">
+
 ### 일상 대화
 처음 만난 날 이름을 찾은 뒤부터, 아이가 먼저 말을 걸어요. "오늘은 어때?", "오늘은 뭐 하면서 보낼 거야?", "밥은 먹었어?", "어젯밤엔 잘 잤어?", "너는 뭘 좋아해?" 같은 질문이나 혼잣말을 해요.
 - **대답하기**: 질문 아래에 선택지가 나와요(👍 응 · 👎 아니 / 👍 좋아 · ✋ 그저 그래 · 👎 별로 / ☝ ✌ 🤟 보기 1·2·3).
@@ -67,6 +107,10 @@
 - **기억**: 기분, 오늘 계획, 좋아하는 것, 꿈, 방문 날짜를 이 기기에 저장해요(localStorage). 다음 날 오면 "어제 '시험 공부' 한다고 했잖아. 어땠어?", 며칠 만이면 "3일 만이야. 보고 싶었어."라고 해요. 지난번에 힘들다고 했으면 먼저 안부를 물어요.
 - **시간**: 아침·저녁·밤에 따라 인사와 질문이 바뀌고, 종이 색도 살짝 달라져요.
 - **그냥 말 걸기**: 질문 중이 아닐 때 적은 말에도 대답해요(인사, 배고파, 졸려, 공부, 회사, 코딩, 날씨, 외로워 등). 인터넷 없이 동작하는 간단한 규칙 기반이에요.
+
+| 질문과 선택지 — 👍를 유지하면 밑줄이 차오름 | 키보드로 적은 대답이 물 위에 떠오름 |
+|:-:|:-:|
+| ![어제 계획을 기억해서 묻는 질문과 선택지](docs/screenshots/hs-08-choice.jpg) | ![적은 대답과 아이의 반응](docs/screenshots/hs-09-reply.jpg) |
 
 ### 표정 읽기 — 본 것을 말하고, 물어본다
 웹캠에 보이는 얼굴의 표정 수치(MediaPipe 블렌드셰이프 52개)를 **FACS(얼굴 근육 움직임 코드표)** 카탈로그로 해석해요([hello/expression.js](hello/expression.js)). 사람마다 평소 얼굴이 다르니, 처음 몇 초 동안 그 사람의 **중립 표정을 먼저 학습**하고 그보다 얼마나 달라졌는지로 판단해요.
@@ -104,6 +148,8 @@
 - 기억(계획, 기분, 좋아하는 것, 방문 날짜)은 **사람마다 따로** 저장돼요. 아이의 이름과 눈 색은 아이의 것이라 모두에게 같아요.
 - 다시 볼 때마다 새 얼굴 사진 2장을 더 배워서(최대 8장) 안경, 머리 모양, 조명 변화에 조금씩 적응해요.
 - **`L`**: 기억하는 얼굴 목록(썸네일, 이름, 만난 횟수)을 보고 한 명씩 **잊기** 또는 **모두 잊기**. `Shift+R`도 얼굴까지 모두 지워요.
+
+  <img src="docs/screenshots/hs-11-faces.jpg" width="60%" alt="기억하는 얼굴 목록 (예시 데이터)">
 - 저장되는 것: 얼굴 특징값(숫자 128개 × 최대 8장), 96px 흑백 썸네일, 그 사람과의 기억. **원본 영상은 저장하지 않고, 모든 정보는 이 기기의 브라우저 저장소에만 있어요.**
 - 인식은 [@vladmandic/face-api](https://github.com/vladmandic/face-api)(MIT)로 기기 안에서 실행돼요. 쌍둥이처럼 닮은 얼굴은 헷갈릴 수 있어요.
 
@@ -132,3 +178,9 @@
 - 물방울은 한 프레임에 최대 16개를 한 번에 처리하고, 종이 질감은 미리 그려 둔 것을 재사용해요.
 - 자동 해상도: 45fps 아래로 떨어지면 렌더 해상도를 한 단계씩 낮추고(1.5 → 1.25 → 1.0 → 0.8배), 여유가 생기면 다시 올려요. 낮춰도 빨라지지 않으면 원래대로 되돌려요.
 - `D` 센서 화면에서 fps, 해상도 배율, 단계별 시간, 인식된 손 모양·표정 점수를 볼 수 있어요.
+
+  <img src="docs/screenshots/hs-12-debug.jpg" width="50%" alt="D 센서 화면">
+
+---
+
+<sub>스크린샷 안내: 카메라 배경은 사람이 나오지 않도록 직접 그린 가상의 작업실이고, 손은 가상의 손 좌표를 넣어 뼈대로 표시했습니다. 얼굴 목록의 이름과 썸네일은 예시 데이터입니다.</sub>
