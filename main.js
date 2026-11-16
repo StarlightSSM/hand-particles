@@ -730,7 +730,7 @@ function stepOrb(dt) {
     pos[i3] = px + vx; pos[i3 + 1] = py + vy; pos[i3 + 2] = pz + vz;
 
     const heat = Math.min(1, Math.sqrt(vx * vx + vy * vy + vz * vz) / 14);
-    const gl = 0.32 + rnd[i] * 0.22 + heat * 0.35 + tend * 0.15;
+    const gl = 0.2 + rnd[i] * 0.16 + heat * 0.28 + tend * 0.12; // 입자가 많이 겹쳐도 하얗게 날아가지 않게 (색이 살아 있게)
     col[i3] = (orbCol[i3] + (1 - orbCol[i3]) * heat) * gl;
     col[i3 + 1] = (orbCol[i3 + 1] + (1 - orbCol[i3 + 1]) * heat) * gl;
     col[i3 + 2] = (orbCol[i3 + 2] + (1 - orbCol[i3 + 2]) * heat) * gl;
@@ -862,9 +862,9 @@ function renderHints(m) {
     + '<span class="keys">1~7 모드 · H UI 숨김 · C 카메라 · 마우스도 가능</span>';
 }
 function applyFx() {
-  const base = { text: 0.8, flow: 0.86, cloud: 0.5, orb: 0.84 }[S.mode] ?? 0;
+  const base = { text: 0.8, flow: 0.86, cloud: 0.5, orb: 0.78 }[S.mode] ?? 0;
   after.uniforms.damp.value = S.trails ? base : 0.0;
-  bloom.strength = { text: 0.75, flow: 0.8, cloud: 0.65, orb: 0.95 }[S.mode] ?? 0.7;
+  bloom.strength = { text: 0.75, flow: 0.8, cloud: 0.65, orb: 0.7 }[S.mode] ?? 0.7;
   document.querySelector('[data-toggle="trails"]').classList.toggle('on', S.trails);
   document.querySelector('[data-toggle="skel"]').classList.toggle('on', S.skel);
 }
