@@ -5,6 +5,8 @@
 - **HAND · FIELD**: 손으로 파티클과 영상 효과를 만지는 TouchDesigner 스타일 실험 화면 (7개 모드)
 - **hello, stranger**: 흰 수면 아래에서 깨어나, 나와 지내며 자기 이름을 찾아가는 아이
 
+📄 이 문서를 PDF로 보기: [docs/README.pdf](docs/README.pdf)
+
 ![HAND·FIELD의 GLASS 모드와 hello, stranger의 첫 인사](docs/screenshots/hero.jpg)
 
 ## 실행
